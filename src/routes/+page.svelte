@@ -1,0 +1,310 @@
+<script lang="ts">
+	import type monaco from 'monaco-editor';
+	import { onMount } from 'svelte';
+	import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker';
+	import jsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker';
+	import cssWorker from 'monaco-editor/esm/vs/language/css/css.worker?worker';
+	import htmlWorker from 'monaco-editor/esm/vs/language/html/html.worker?worker';
+	import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker';
+
+	import { renderMarkdown } from '$lib';
+	import { page } from '$app/stores';
+	import type { CorrectionMetadata, Review } from '$lib/server/git';
+	import { trpc } from '$lib/trpc/client';
+	import { DateTime, Duration } from 'luxon';
+	import type { UpdateData } from '$lib/trpc/router';
+	import { set } from 'zod';
+	let divEl: HTMLDivElement;
+	let editor: monaco.editor.IStandaloneDiffEditor;
+	let Monaco: typeof import('monaco-editor') | undefined = $state();
+
+	let currentState: undefined | (UpdateData & { timestamp: DateTime }) = $state();
+
+	let fileList: { path: string; hasCorrection: boolean }[] = $state([]);
+	let selectedPath: string | undefined = $state();
+	let connectedToBackend = $state(false);
+
+	// let client = $derived(trpc($page));
+	const client = trpc();
+
+	let metadata:
+		| {
+				paragraph: { value: number; of: number };
+				messages: string;
+				time_in_ms: number;
+		  }
+		| undefined = $state();
+
+	let reviewTemplate: HTMLTemplateElement;
+
+	$effect(() => {
+		if (selectedPath) {
+			updateText(selectedPath);
+		}
+	});
+
+	let now = $state(DateTime.now());
+	setInterval(() => {
+		now = DateTime.now();
+	}, 500);
+
+	let originalModel: monaco.editor.ITextModel;
+	let correctionModel: monaco.editor.ITextModel;
+	function updateText(selectedPath: string) {
+		client.getCorrection.query(selectedPath).then(({ correction, original, metadata: meta }) => {
+
+			originalModel.setValue(original);
+			correctionModel.setValue(correction);
+			editor
+				.getModifiedEditor()
+				.updateOptions({ readOnly: meta.paragraph.value != meta.paragraph.of });
+			metadata = meta;
+		});
+		console.log('selectedPath', selectedPath);
+	}
+
+	onMount(() => {
+		// @ts-ignore
+		self.MonacoEnvironment = {
+			getWorker: function (_moduleId: any, label: string) {
+				if (label === 'json') {
+					return new jsonWorker();
+				}
+				if (label === 'css' || label === 'scss' || label === 'less') {
+					return new cssWorker();
+				}
+				if (label === 'html' || label === 'handlebars' || label === 'razor') {
+					return new htmlWorker();
+				}
+				if (label === 'typescript' || label === 'javascript') {
+					return new tsWorker();
+				}
+
+				return new editorWorker();
+			}
+		};
+
+		client.onMessage.subscribe(undefined, {
+			onStarted() {
+				connectedToBackend = true;
+				console.log('connected');
+			},
+			onStopped() {
+				connectedToBackend = false;
+				console.log('disconnected');
+			},
+			onError(error) {
+				console.error('error connection faild', error);
+			},
+			onComplete() {
+				console.log('complete');
+			},
+			onData(message) {
+				console.log('message', message);
+				if (
+					currentState &&
+					currentState.path == selectedPath &&
+					message.paragraph.value !== currentState.paragraph.value
+				) {
+					// update text
+					updateText(selectedPath);
+				}
+				currentState = { ...message, timestamp: DateTime.now() };
+			}
+		});
+
+		client.listFiles.query().then((files) => {
+			console.log('files?', files);
+			fileList = files;
+		});
+
+		import('monaco-editor').then((monaco) => {
+			if (!divEl) return;
+			Monaco = monaco;
+
+			editor = Monaco.editor.createDiffEditor(divEl, {
+				// value: ['function x() {', '\tconsole.log("Hello world!");', '}'].join('\n'),
+				// language: 'javascript'
+				// automaticLayout: true // <<== the important part
+			});
+
+			originalModel = Monaco.editor.createModel('', 'markdown');
+			// make readonly
+			editor.getOriginalEditor().updateOptions({ readOnly: true });
+			correctionModel = Monaco.editor.createModel('', 'markdown');
+
+			editor.setModel({
+				original: originalModel,
+				modified: correctionModel
+			});
+			// const commandId = editor.addCommand(
+			// 	0,
+			// 	function () {
+			// 		// Create a zone over the margin. Uses the trick explained
+			// 		// at https://github.com/Microsoft/monaco-editor/issues/373
+
+			// 		// overlay that will be placed over the zone.
+			// 		let overlayDom = document.createElement('div');
+			// 		overlayDom.id = 'overlayId';
+			// 		overlayDom.style.width = '100%';
+			// 		overlayDom.style.background = '#ffb275';
+			// 		const button = document.createElement('button');
+			// 		button.innerHTML = 'Remove';
+			// 		overlayDom.appendChild(button);
+
+			// 		// https://microsoft.github.io/monaco-editor/api/interfaces/monaco.editor.ioverlaywidget.html
+			// 		let overlayWidget = {
+			// 			getId: () => 'overlay.zone.widget',
+			// 			getDomNode: () => overlayDom,
+			// 			getPosition: () => null
+			// 		};
+			// 		editor.addOverlayWidget(overlayWidget);
+
+			// 		// Used only to compute the position.
+			// 		let zoneNode = document.createElement('div');
+			// 		zoneNode.style.background = '#8effc9';
+			// 		zoneNode.id = 'zoneId';
+
+			// 		// Can be used to fill the margin
+			// 		let marginDomNode = document.createElement('div');
+			// 		marginDomNode.style.background = '#ff696e';
+			// 		marginDomNode.id = 'zoneMarginId';
+
+			// 		editor.changeViewZones(function (changeAccessor) {
+			// 			changeAccessor.addZone({
+			// 				afterLineNumber: 1,
+			// 				heightInLines: 3,
+			// 				domNode: zoneNode,
+			// 				marginDomNode: marginDomNode,
+			// 				onDomNodeTop: (top) => {
+			// 					overlayDom.style.top = top + 'px';
+			// 				},
+			// 				onComputedHeight: (height) => {
+			// 					overlayDom.style.height = height + 'px';
+			// 				}
+			// 			});
+			// 		});
+			// 	},
+			// 	''
+			// );
+			// if (commandId)
+			// 	Monaco.languages.registerCodeLensProvider('javascript', {
+			// 		provideCodeLenses: function (model, token) {
+			// 			return {
+			// 				lenses: [
+			// 					{
+			// 						range: {
+			// 							startLineNumber: 1,
+			// 							startColumn: 1,
+			// 							endLineNumber: 2,
+			// 							endColumn: 1
+			// 						},
+			// 						id: 'First Line',
+			// 						command: {
+			// 							id: commandId,
+			// 							title: 'First Line'
+			// 						}
+			// 					}
+			// 				],
+			// 				dispose: () => {}
+			// 			};
+			// 		},
+			// 		resolveCodeLens: function (model, codeLens, token) {
+			// 			return codeLens;
+			// 		}
+			// 	});
+
+			window.onresize = function () {
+				editor.layout();
+			};
+		});
+		return () => {
+			editor.dispose();
+		};
+	});
+
+	async function addReview(line: number, review: Review) {
+		const text = await renderMarkdown(review.review);
+		const view = reviewTemplate.content.cloneNode(true) as HTMLDivElement;
+		const content = document.getElementsByClassName('content')[0];
+		content.innerHTML = text;
+	}
+</script>
+
+<select bind:value={selectedPath}>
+	{#each fileList as file}
+		<option disabled={!file.hasCorrection} value={file.path}>{file.path} </option>
+	{/each}
+</select>
+
+<div>
+	{#if currentState}
+		<div>Working on {currentState.path}</div>
+		<div>Progress {currentState.paragraph.value}/{currentState.paragraph.of}</div>
+		{#if !connectedToBackend}
+			<div>runtime {Duration.fromDurationLike({
+				milliseconds: currentState.time_in_ms,
+				seconds: 0,
+				minutes: 0,
+				hours: 0
+			})
+				.normalize()
+				.toHuman()} waiting for backend to come back.</div>
+		{:else if currentState.paragraph.value == currentState.paragraph.of}
+			<div>
+				runtime {Duration.fromDurationLike({
+					milliseconds: currentState.time_in_ms,
+					seconds: 0,
+					minutes: 0,
+					hours: 0
+				})
+					.normalize()
+					.toHuman()}
+			</div>
+		{:else}
+			<div>
+				runtime {now
+					.diff(currentState.timestamp)
+					.plus({ milliseconds: currentState.time_in_ms, seconds: 0, minutes: 0, hours: 0 })
+					.normalize()
+					.toHuman({
+						useGrouping: true,
+						listStyle: 'short',
+						notation: 'compact',
+						compactDisplay: 'short'
+					})}
+			</div>
+		{/if}
+	{/if}
+</div>
+
+
+{#if metadata}
+	<div>{metadata.paragraph.value}/{metadata.paragraph.of}</div>
+	{metadata.messages.length}
+	<div>
+		{#each metadata.messages as message}
+			<div>{message}</div>
+		{/each}
+	</div>
+{/if}
+<div bind:this={divEl} class="h-screen"></div>
+
+<template bind:this={reviewTemplate}>
+	<div class="review">
+		<header>
+			<button class="close" aria-label="close review">×</button>
+			<strong>Review</strong>
+		</header>
+		<div class="content"></div>
+	</div>
+</template>
+
+<style>
+	:global(body) {
+		overflow: hidden;
+	}
+	.h-screen {
+		height: 100vh;
+	}
+</style>
