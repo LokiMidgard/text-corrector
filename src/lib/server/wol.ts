@@ -22,10 +22,10 @@ import { fireUpdate } from '$lib/trpc/router';
 const resolver = new Resolver();
 
 const envParser = z.object({
-    HOST: z.string(),
-    PROTOCOL: z.string(),
-    MAC: z.string(),
-    IP: z.string().ip(),
+    OLLAMA_HOST: z.string(),
+    OLLAMA_PROTOCOL: z.string(),
+    OLLAMA_MAC: z.string(),
+    OLLAMA_IP: z.string().ip(),
     GITHUB_API_TOKEN: z.string(),
     REPO: z.string(),
     PATH_FILTER: z.string().optional(),
@@ -53,10 +53,10 @@ if (missingFiles.length > 0) {
 
 
 
-const host = env.HOST;
-const protocol = env.PROTOCOL;
-const mac = env.MAC;
-const ip = env.IP;
+const host = env.OLLAMA_HOST;
+const protocol = env.OLLAMA_PROTOCOL;
+const mac = env.OLLAMA_MAC;
+const ip = env.OLLAMA_IP;
 
 const githubApiToken = env.GITHUB_API_TOKEN;
 const repo = env.REPO;
