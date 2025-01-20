@@ -28,8 +28,8 @@ const envParser = z.object({
     IP: z.string().ip(),
     GITHUB_API_TOKEN: z.string(),
     REPO: z.string(),
-    PATH_FILTER: z.string(),
-    MODEL: z.string(),
+    PATH_FILTER: z.string().optional(),
+    MODEL: z.string().optional(),
     CONTEXT_WINDOW: z.number().optional(),
 });
 export type Env = z.infer<typeof envParser>;
@@ -62,7 +62,7 @@ const githubApiToken = env.GITHUB_API_TOKEN;
 const repo = env.REPO;
 
 
-const pathFilter = /story\/.*\.md/;
+const pathFilter = env.PATH_FILTER ? new RegExp(env.PATH_FILTER) : /story\/.*\.md/;
 
 const noTimeoutFetch = (input: string | URL | globalThis.Request, init?: RequestInit) => {
     const someInit = init || {}

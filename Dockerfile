@@ -1,4 +1,4 @@
-FROM node:22-alpine as build
+FROM --platform=$BUILDPLATFORM node:22-alpine AS build
 
 # Create app directory
 
@@ -6,7 +6,6 @@ WORKDIR /usr/src/app
 
 # create build directory
 
-RUN mkdir build
 
 
 # Install app dependencies
@@ -16,22 +15,23 @@ COPY package*.json ./
 
 # copy package.json to build directory
 
-COPY package*.json build/
+COPY package*.json build_modules/
 
 
 # install dependencies
 RUN npm install
 
 #install dependencies in build directory
-
-RUN cd build && npm ci --omit dev
+RUN cd build_modules && npm ci --omit dev 
 
 # Bundle app source
 
 COPY . .    
 
+
 RUN npm run build
 
+RUN cp -r build_modules/node_modules build/node_modules
 
 FROM node:22-alpine
 
