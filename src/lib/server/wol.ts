@@ -102,14 +102,15 @@ const model: keyof typeof model_properties = 'qwen2.5:32b';
 const context_window = env.CONTEXT_WINDOW ?? model_properties[model].context_window;
 
 
+async function performWake() {
+    // Path to the named pipe (same as in your Bash script)
+    const pipePath = '/tmp/mac_pipe';
 
-
-async function wake() {
-    //check with ping untill pc is online if not successfull send wol
-    let state = await ping.promise.probe(await ip);
-    while (!state.alive) {
+    // Check if the named pipe exists
+    if (!fs.existsSync(pipePath)) {
+        console.error(`Named pipe does not exist: ${pipePath}`);
         wol.wake(mac, {
-            address: await ip,
+            address: ip,
         }, function (error: unknown) {
             if (error) {
                 console.error(error);
@@ -117,6 +118,23 @@ async function wake() {
                 console.log('wol packet sent');
             }
         });
+    } else {
+        // Write the MAC address to the pipe
+        fs.writeFile(pipePath, `${mac}\n`, (err) => {
+            if (err) {
+                console.error(`Failed to write to pipe: ${err.message}`);
+            } else {
+                console.log(`MAC address ${mac} sent to the pipe.`);
+            }
+        });
+    }
+}
+
+async function wake() {
+    //check with ping untill pc is online if not successfull send wol
+    let state = await ping.promise.probe(ip);
+    while (!state.alive) {
+        await performWake();
         state = await ping.promise.probe(await ip);
     }
 
