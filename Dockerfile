@@ -1,42 +1,28 @@
+# this is not working unless websocket is working for npm build
+
 FROM --platform=$BUILDPLATFORM node:22-alpine AS build
 
 # Create app directory
 
 WORKDIR /usr/src/app
 
-# create build directory
-
-
-
 # Install app dependencies
-# A wildcard is used to ensure both package.json AND package-lock.json are copied
 
 COPY package*.json ./
-
-# copy package.json to build directory
-
-COPY package*.json build_modules/
-
 
 # install dependencies
 RUN npm install
 
-#install dependencies in build directory
-RUN cd build_modules && npm ci --omit dev 
 
 # Bundle app source
 
 COPY . .    
 
 
-RUN npm run build
-
-RUN cp -r build_modules/node_modules build/node_modules
-
 FROM node:22-alpine
 
 WORKDIR /app
 
-COPY --from=build /usr/src/app/build .
+COPY --from=build /usr/src/app .
 
-ENTRYPOINT [ "node" ,"."]
+ENTRYPOINT [ "npm" ,"start"]
