@@ -104,7 +104,7 @@ const context_window = env.CONTEXT_WINDOW ?? model_properties[model].context_win
 
 async function performWake() {
     // Path to the named pipe (same as in your Bash script)
-    const pipePath = '/tmp/mac_pipe';
+    const pipePath = '/opt/wol/mac_pipe';
 
     // Check if the named pipe exists
     if (!fs.existsSync(pipePath)) {
