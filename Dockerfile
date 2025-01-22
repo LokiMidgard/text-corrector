@@ -25,6 +25,9 @@ FROM node:22-alpine
 
 WORKDIR /app
 
-COPY --from=build /usr/src/app .
+COPY --from=build /usr/src/app/build ./build
+COPY --from=build /usr/src/app/wsServer.js .
+COPY --from=build /usr/src/app/package*.json .
+COPY --from=build /usr/src/app/node_modules ./node_modules
 
 ENTRYPOINT [ "npm" ,"start"]

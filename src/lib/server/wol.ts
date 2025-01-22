@@ -217,7 +217,7 @@ export async function checkRepo(): Promise<never> {
             }
             if (!workDone) {
                 console.log('Nothing to do, shutting down remote');
-                fetch(`${protocol}://${host}/shutdown`, { method: 'POST' });
+                fetch(`${protocol}://${host}/poweroff`, { method: 'POST' });
             }
 
             // delay for 30 seconds
@@ -338,6 +338,7 @@ async function correct(path: string) {
                 + formatMarkdown(corrected) + (end_of_text < story.length ? (
                     story.substring(end_of_text + 1)) : ''
                 );
+            metadata.paragraph.value=i+1
             await git.correctText(path, newStory, metadata);
             changes = story !== newStory
             story = newStory;
