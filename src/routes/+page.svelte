@@ -19,6 +19,7 @@
 	let Monaco: typeof import('monaco-editor') | undefined = $state();
 
 	let currentState: undefined | (UpdateData & { timestamp: DateTime }) = $state();
+	let metadata: undefined | (UpdateData & { timestamp: DateTime }) = $state();
 
 	let fileList: { path: string; hasCorrection: boolean }[] = $state([]);
 	let selectedPath: string | undefined = $state();
@@ -27,13 +28,13 @@
 	// let client = $derived(trpc($page));
 	const client = trpc();
 
-	let metadata:
-		| {
-				paragraph: { value: number; of: number };
-				messages: string;
-				time_in_ms: number;
-		  }
-		| undefined = $state();
+	// let metadata:
+	// 	| {
+	// 			paragraph: { value: number; of: number };
+	// 			messages: string;
+	// 			time_in_ms: number;
+	// 	  }
+	// 	| undefined = $state();
 
 	let reviewTemplate: HTMLTemplateElement;
 
@@ -237,6 +238,8 @@
 	{/each}
 </select>
 
+
+
 <div>
 	{#if currentState}
 		<div>Working on {currentState.path}</div>
@@ -277,17 +280,53 @@
 		{/if}
 	{/if}
 </div>
+<br/>
+<div>
+	{#if metadata}
+		<div>Progress {metadata.paragraph.value}/{metadata.paragraph.of}</div>
+		{#if !connectedToBackend}
+			<div>runtime {Duration.fromDurationLike({
+				milliseconds: metadata.time_in_ms,
+				seconds: 0,
+				minutes: 0,
+				hours: 0
+			})
+				.normalize()
+				.toHuman()} waiting for backend to come back.</div>
+		{:else if metadata.paragraph.value == metadata.paragraph.of}
+			<div>
+				runtime {Duration.fromDurationLike({
+					milliseconds: metadata.time_in_ms,
+					seconds: 0,
+					minutes: 0,
+					hours: 0
+				})
+					.normalize()
+					.toHuman()}
+			</div>
+		{:else}
+			<div>
+				runtime {now
+					.diff(metadata.timestamp)
+					.plus({ milliseconds: metadata.time_in_ms, seconds: 0, minutes: 0, hours: 0 })
+					.normalize()
+					.toHuman({
+						useGrouping: true,
+						listStyle: 'short',
+						notation: 'compact',
+						compactDisplay: 'short'
+					})}
+			</div>
+		{/if}
+		<div>
+			{#each metadata.messages as message}
+				<div>{message}</div>
+			{/each}
+		</div>
+	{/if}
+</div>
 
 
-{#if metadata}
-	<div>{metadata.paragraph.value}/{metadata.paragraph.of}</div>
-	{metadata.messages.length}
-	<div>
-		{#each metadata.messages as message}
-			<div>{message}</div>
-		{/each}
-	</div>
-{/if}
 <div bind:this={divEl} class="h-screen"></div>
 
 <template bind:this={reviewTemplate}>

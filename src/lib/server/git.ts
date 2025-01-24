@@ -37,76 +37,85 @@ export type Review = {
 
 
 
-export async function updateRepo(githubApiToken:string, repo:string) {
+export async function updateRepo(githubApiToken: string, repo: string) {
     console.log('Updating repository');
-    const octokit = new Octokit({ auth: githubApiToken });
+    try {
 
-    const {
-        data: { login },
-    } = await octokit.rest.users.getAuthenticated();
-    // checkout repository
-    const { data: repository } = await octokit.rest.repos.get({
-        owner: login,
-        repo,
-    });
+        console.log(githubApiToken)
+        const octokit = new Octokit({ auth: githubApiToken });
 
-
-    const clone_url = new URL(repository.clone_url);
-    clone_url.username = login;
-    clone_url.password = githubApiToken;
-
-
-
-    if (syncfs.existsSync(dir)) {
-        await git.pull({
-            fs,
-            http,
-            dir,
-            author: bot,
-            committer: bot,
-            url: clone_url.href,
+        const {
+            data: { login },
+        } = await octokit.rest.users.getAuthenticated();
+        console.log(`Login is ${login}`)
+        console.log(`Repo is ${repo}`)
+        // checkout repository
+        const { data: repository } = await octokit.rest.repos.get({
+            owner: login,
+            repo,
         });
-        console.log('Repository updated successfully');
-    } else {
-        try {
-            await git.clone({
+
+        console.log(`Clone URL is ${repository.clone_url}`);
+
+        const clone_url = new URL(repository.clone_url);
+        clone_url.username = login;
+        clone_url.password = githubApiToken;
+
+
+
+        if (syncfs.existsSync(dir)) {
+            await git.pull({
                 fs,
                 http,
                 dir,
+                author: bot,
+                committer: bot,
                 url: clone_url.href,
             });
-            console.log('Repository cloned successfully');
-        } catch (error) {
-            console.error('Failed to clone repository:', error);
-        }
-    }
-
-    const remoteRefs = await git.listServerRefs({ http, url: clone_url.href, prefix: 'refs/spellcheck/' });
-    for (const ref of remoteRefs) {
-        console.log('fetching', ref.ref);
-        const result = await git.fetch({
-            fs,
-            http,
-            dir,
-            ref: ref.ref,
-        })
-        if (result.fetchHead) {
-            const spellcheckId = ref.ref.substring('refs/spellcheck/'.length);
-            if ((await git.listRefs({ fs, dir, filepath: ref.ref })).length === 0) {
-                await git.writeRef({ fs, dir, ref: ref.ref, value: result.fetchHead, symbolic: false, force: true });
-                console.log('fetched new', result);
-            }
-            else {
-                await git.merge({
+            console.log('Repository updated successfully');
+        } else {
+            try {
+                await git.clone({
                     fs,
+                    http,
                     dir,
-                    ours: `refs/spellcheck/${spellcheckId}`,
-                    theirs: result.fetchHead,
-                    fastForwardOnly: true,
-                })
-                console.log('fetched existing', result);
+                    url: clone_url.href,
+                });
+                console.log('Repository cloned successfully');
+            } catch (error) {
+                console.error('Failed to clone repository:', error);
             }
         }
+
+        const remoteRefs = await git.listServerRefs({ http, url: clone_url.href, prefix: 'refs/spellcheck/' });
+        for (const ref of remoteRefs) {
+            console.log('fetching', ref.ref);
+            const result = await git.fetch({
+                fs,
+                http,
+                dir,
+                ref: ref.ref,
+            })
+            if (result.fetchHead) {
+                const spellcheckId = ref.ref.substring('refs/spellcheck/'.length);
+                if ((await git.listRefs({ fs, dir, filepath: ref.ref })).length === 0) {
+                    await git.writeRef({ fs, dir, ref: ref.ref, value: result.fetchHead, symbolic: false, force: true });
+                    console.log('fetched new', result);
+                }
+                else {
+                    await git.merge({
+                        fs,
+                        dir,
+                        ours: `refs/spellcheck/${spellcheckId}`,
+                        theirs: result.fetchHead,
+                        fastForwardOnly: true,
+                    })
+                    console.log('fetched existing', result);
+                }
+            }
+        }
+    } catch (e) {
+        console.error(e);
     }
 }
 

@@ -12,6 +12,8 @@ import { unified } from 'unified';
 import remarkWiki from 'remark-wiki-link';
 import { Agent } from 'undici'
 
+import * as svelteEnve from '$env/static/private'
+
 import { z } from 'zod';
 
 import type { BlockContent, DefinitionContent, Paragraph, Root } from 'mdast';
@@ -35,7 +37,8 @@ const envParser = z.object({
 export type Env = z.infer<typeof envParser>;
 
 
-const env = envParser.parse(process.env);
+console.log()
+const env = envParser.parse(svelteEnve);
 
 // check if all required systems files are present
 const requiredFiles = [
@@ -108,7 +111,7 @@ async function performWake() {
 
     // Check if the named pipe exists
     if (!fs.existsSync(pipePath)) {
-        console.error(`Named pipe does not exist: ${pipePath}`);
+        console.debug(`Named pipe does not exist: ${pipePath}`);
         wol.wake(mac, {
             address: ip,
         }, function (error: unknown) {
@@ -135,6 +138,10 @@ async function wake() {
     let state = await ping.promise.probe(ip);
     while (!state.alive) {
         await performWake();
+
+        await new Promise((resolve) => setTimeout(resolve, 5000));
+
+
         state = await ping.promise.probe(await ip);
     }
 
@@ -149,7 +156,7 @@ async function wake() {
         }
     }
     while (!(await isHealthy())) {
-        await new Promise((resolve) => setTimeout(resolve, 1000));
+        await new Promise((resolve) => setTimeout(resolve, 5000));
     }
     console.log('server is healthy');
 
@@ -233,7 +240,6 @@ export async function checkRepo(): Promise<never> {
 };
 
 async function correct(path: string) {
-
 
     const { original, correction, metadata } = (await git.tryGetCorrection(path)) ?? {
         metadata: { paragraph: { value: 0, of: undefined }, time_in_ms: 0, messages: [] },
@@ -338,7 +344,7 @@ async function correct(path: string) {
                 + formatMarkdown(corrected) + (end_of_text < story.length ? (
                     story.substring(end_of_text + 1)) : ''
                 );
-            metadata.paragraph.value=i+1
+            metadata.paragraph.value = i + 1
             await git.correctText(path, newStory, metadata);
             changes = story !== newStory
             story = newStory;
