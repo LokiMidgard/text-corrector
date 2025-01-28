@@ -127,6 +127,67 @@ export async function getText(path: string) {
     return new TextDecoder().decode(currentBlob.blob);
 }
 
+export async function setText(path: string, newText: string, commitData: Omit<git.CommitObject, 'paren' | 'tree'>) {
+    const branch = await git.resolveRef({ fs, dir, ref: 'HEAD' });
+    const currentCommitOid = await git.resolveRef({ fs, dir, ref: branch });
+
+    const currentCommit = await git.readCommit({ fs, dir, oid: currentCommitOid });
+    const rootTreeOid = currentCommit.commit.tree;
+    const rootTree = await git.readTree({ fs, dir, oid: rootTreeOid });
+    const pathSegments = path.split('/');
+
+    type Tree = git.TreeEntry[];
+    const newTree = await modifyTree(rootTree.tree, newText, pathSegments)
+    const newTreeOid = await git.writeTree({ fs, dir, tree: newTree });
+
+    const newCommit = await git.writeCommit({
+        fs, dir, commit: {
+            ...commitData,
+            parent: [currentCommitOid],
+            tree: newTreeOid,
+        }
+    });
+    await git.writeRef({ fs, dir, ref: branch, value: newCommit, symbolic: false });
+
+
+
+    async function modifyTree(tree: git.TreeEntry[], newText: string, segments: string[]): Promise<Tree> {
+        const [currentPath, ...restPathsegments] = [...segments];
+
+        const promises = tree.map(async x => {
+            if (x.path == currentPath) {
+                if (x.type == 'blob') {
+                    if (restPathsegments.length == 0) {
+                        //las element we can return our new blob
+                        const newBlobOid = await git.writeBlob({
+                            fs, dir,
+                            blob: new TextEncoder().encode(newText),
+                        });
+                        return {
+                            ...x,
+                            oid: newBlobOid
+                        } satisfies git.TreeEntry;
+                    }
+                    throw new Error(`Faild to write blob, Encounterd blob instead of tree. Rest Path ${restPathsegments.join(", ")}`);
+                } else if (x.type == 'commit') {
+                    throw new Error(`Type Commit not supported`);
+                } else {
+                    const { tree } = await git.readTree({ fs, dir, oid: x.oid });
+                    const newTree = await modifyTree(tree, newText, restPathsegments);
+                    const newTreeOid = await git.writeTree({ fs, dir, tree: newTree });
+                    return {
+                        ...x,
+                        oid: newTreeOid,
+                    } satisfies git.TreeEntry;
+                }
+            } else {
+                return x;
+            }
+        });
+        return await Promise.all(promises);
+    }
+}
+
 export type CorrectionMetadata = {
     paragraph: { value: number, of: number | undefined };
     messages: Array<BlockContent | DefinitionContent>[];
