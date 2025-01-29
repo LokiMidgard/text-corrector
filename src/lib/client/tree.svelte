@@ -1,8 +1,9 @@
 <script lang="ts" module>
 	export type TreeElement = {
-		lable: string;
+		label: string;
+		hasCorrection?: boolean;
 		id: string;
-		chlidren: TreeElement[];
+		children: TreeElement[];
 	};
 </script>
 
@@ -22,21 +23,26 @@
 {/if}
 {#snippet element(ele: TreeElement, indentation = 0)}
 	<li style="--indentation:{indentation}">
-		{#if ele.chlidren.length > 0}
+		{#if ele.children.length > 0}
 			<details open>
 				<summary>
-					{ele.lable}
+					{ele.label}
 				</summary>
 				<ul>
-					{#each ele.chlidren as child}
+					{#each ele.children as child}
 						{@render element(child, indentation + 1)}
 					{/each}
 				</ul>
 			</details>
 		{:else}
-			<label title={ele.lable}>
-				{ele.lable}
+			<label title={ele.label}>
+				<span class:hasCorrection={ele.hasCorrection}>
+					{ele.label}
+				</span>
 				<input type="radio" name="selectedElement" bind:group={selectedElement} value={ele.id} />
+				<!-- {#if ele.hasCorrection}
+					<span>🔴</span>
+				{/if} -->
 			</label>
 		{/if}
 	</li>
@@ -70,5 +76,23 @@
 	}
 	input {
 		display: none;
+	}
+	.hasCorrection {
+		position: relative;
+		display: flex	;		align-content: center;
+		&::before {
+			align-self: center;
+			opacity: 0.5;
+			content: ' ';
+			background-color: red;
+			width: 0.6rem;
+			height: 0.6rem;
+			position: absolute;
+			left: -0.8rem;
+			border-radius: 0.3rem;
+		}
+		&:hover::before {
+			opacity: 1;
+		}
 	}
 </style>
