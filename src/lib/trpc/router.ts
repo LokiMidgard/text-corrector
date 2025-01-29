@@ -1,7 +1,7 @@
 // lib/trpc/router.ts
 import type { Context } from '$lib/trpc/context';
 import { initTRPC } from '@trpc/server';
-import { correctText, getCorrection, getCurrentCommitData, getReviews, listFiles, setText, type CorrectionMetadata } from '../server/git';
+import { correctText, getCorrection, getCurrentCommitData,  getText, listFiles, setText, type CorrectionMetadata } from '../server/git';
 import { z } from 'zod';
 import { transformFromAst } from '../server/wol';
 import { observable } from '@trpc/server/observable';
@@ -54,6 +54,10 @@ export const router = t.router({
 
             }
         };
+    }),
+    getText: t.procedure.input(z.string()).query(async ({ input }) => {
+        const text = await getText(input);
+        return text;
     }),
     onMessage: t.procedure
         // .output(onProgress)

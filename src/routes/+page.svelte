@@ -1,89 +1,47 @@
 <script lang="ts">
-	import type monaco from 'monaco-editor';
-	import { onMount } from 'svelte';
-	import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker';
-	import jsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker';
-	import cssWorker from 'monaco-editor/esm/vs/language/css/css.worker?worker';
-	import htmlWorker from 'monaco-editor/esm/vs/language/html/html.worker?worker';
-	import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker';
-
-	import { renderMarkdown } from '$lib';
-	import { page } from '$app/stores';
-	import type { CorrectionMetadata, Review } from '$lib/server/git';
+	import Hamburger from '$lib/client/hamburger.svelte';
+	import Tree, { type TreeElement } from '$lib/client/tree.svelte';
 	import { trpc } from '$lib/trpc/client';
+	import { onMount } from 'svelte';
+	import Diff from './diff.svelte';
+	import Textview from './textview.svelte';
+	import Pin from '$lib/client/pin.svelte';
 	import { DateTime, Duration } from 'luxon';
 	import type { UpdateData } from '$lib/trpc/router';
-	import { set } from 'zod';
-	let divEl: HTMLDivElement;
-	let editor: monaco.editor.IStandaloneDiffEditor;
-	let Monaco: typeof import('monaco-editor') | undefined = $state();
 
-	let currentState: undefined | (UpdateData & { timestamp: DateTime }) = $state();
-	let metadata: undefined | (UpdateData & { timestamp: DateTime }) = $state();
+	let open = $state(true);
 
-	let fileList: { path: string; hasCorrection: boolean }[] = $state([]);
-	let selectedPath: string | undefined = $state();
-	let connectedToBackend = $state(false);
-
-	// let client = $derived(trpc($page));
-	const client = trpc();
-
-	// let metadata:
-	// 	| {
-	// 			paragraph: { value: number; of: number };
-	// 			messages: string;
-	// 			time_in_ms: number;
-	// 	  }
-	// 	| undefined = $state();
-
-	let reviewTemplate: HTMLTemplateElement;
+	let both = $state(true);
 
 	$effect(() => {
-		if (selectedPath) {
-			updateText(selectedPath);
+		if (open && both) {
+			document.body.classList.add('both');
+		} else {
+			document.body.classList.remove('both');
 		}
 	});
+
+	type UnwrapPromise<T> = T extends PromiseLike<infer K> ? K : T;
+	type fileListType = UnwrapPromise<ReturnType<typeof client.listFiles.query>>;
+
+	let selectedPath: undefined | string = $state();
+
+	const client = trpc();
+	let fileList: fileListType = $state([]);
+	let { root: tree, lookup } = $derived(convertPathsToTree(fileList));
+
+	let connectedToBackend = $state(false);
+	let currentState: undefined | (UpdateData & { timestamp: DateTime }) = $state();
 
 	let now = $state(DateTime.now());
 	setInterval(() => {
 		now = DateTime.now();
 	}, 500);
 
-	let originalModel: monaco.editor.ITextModel;
-	let correctionModel: monaco.editor.ITextModel;
-	function updateText(selectedPath: string) {
-		client.getCorrection.query(selectedPath).then(({ correction, original, metadata: meta }) => {
-
-			originalModel.setValue(original);
-			correctionModel.setValue(correction);
-			editor
-				.getModifiedEditor()
-				.updateOptions({ readOnly: meta.paragraph.value != meta.paragraph.of });
-			metadata = meta;
-		});
-		console.log('selectedPath', selectedPath);
-	}
-
 	onMount(() => {
-		// @ts-ignore
-		self.MonacoEnvironment = {
-			getWorker: function (_moduleId: any, label: string) {
-				if (label === 'json') {
-					return new jsonWorker();
-				}
-				if (label === 'css' || label === 'scss' || label === 'less') {
-					return new cssWorker();
-				}
-				if (label === 'html' || label === 'handlebars' || label === 'razor') {
-					return new htmlWorker();
-				}
-				if (label === 'typescript' || label === 'javascript') {
-					return new tsWorker();
-				}
-
-				return new editorWorker();
-			}
-		};
+		client.listFiles.query().then((files) => {
+			fileList = files;
+		});
 
 		client.onMessage.subscribe(undefined, {
 			onStarted() {
@@ -102,248 +60,253 @@
 			},
 			onData(message) {
 				console.log('message', message);
-				if (
-					currentState &&
-					currentState.path == selectedPath &&
-					message.paragraph.value !== currentState.paragraph.value
-				) {
-					// update text
-					updateText(selectedPath);
-				}
 				currentState = { ...message, timestamp: DateTime.now() };
 			}
 		});
-
-		client.listFiles.query().then((files) => {
-			console.log('files?', files);
-			fileList = files;
-		});
-
-		import('monaco-editor').then((monaco) => {
-			if (!divEl) return;
-			Monaco = monaco;
-
-			editor = Monaco.editor.createDiffEditor(divEl, {
-				// value: ['function x() {', '\tconsole.log("Hello world!");', '}'].join('\n'),
-				// language: 'javascript'
-				// automaticLayout: true // <<== the important part
-			});
-
-			originalModel = Monaco.editor.createModel('', 'markdown');
-			// make readonly
-			editor.getOriginalEditor().updateOptions({ readOnly: true });
-			correctionModel = Monaco.editor.createModel('', 'markdown');
-
-			editor.setModel({
-				original: originalModel,
-				modified: correctionModel
-			});
-			// const commandId = editor.addCommand(
-			// 	0,
-			// 	function () {
-			// 		// Create a zone over the margin. Uses the trick explained
-			// 		// at https://github.com/Microsoft/monaco-editor/issues/373
-
-			// 		// overlay that will be placed over the zone.
-			// 		let overlayDom = document.createElement('div');
-			// 		overlayDom.id = 'overlayId';
-			// 		overlayDom.style.width = '100%';
-			// 		overlayDom.style.background = '#ffb275';
-			// 		const button = document.createElement('button');
-			// 		button.innerHTML = 'Remove';
-			// 		overlayDom.appendChild(button);
-
-			// 		// https://microsoft.github.io/monaco-editor/api/interfaces/monaco.editor.ioverlaywidget.html
-			// 		let overlayWidget = {
-			// 			getId: () => 'overlay.zone.widget',
-			// 			getDomNode: () => overlayDom,
-			// 			getPosition: () => null
-			// 		};
-			// 		editor.addOverlayWidget(overlayWidget);
-
-			// 		// Used only to compute the position.
-			// 		let zoneNode = document.createElement('div');
-			// 		zoneNode.style.background = '#8effc9';
-			// 		zoneNode.id = 'zoneId';
-
-			// 		// Can be used to fill the margin
-			// 		let marginDomNode = document.createElement('div');
-			// 		marginDomNode.style.background = '#ff696e';
-			// 		marginDomNode.id = 'zoneMarginId';
-
-			// 		editor.changeViewZones(function (changeAccessor) {
-			// 			changeAccessor.addZone({
-			// 				afterLineNumber: 1,
-			// 				heightInLines: 3,
-			// 				domNode: zoneNode,
-			// 				marginDomNode: marginDomNode,
-			// 				onDomNodeTop: (top) => {
-			// 					overlayDom.style.top = top + 'px';
-			// 				},
-			// 				onComputedHeight: (height) => {
-			// 					overlayDom.style.height = height + 'px';
-			// 				}
-			// 			});
-			// 		});
-			// 	},
-			// 	''
-			// );
-			// if (commandId)
-			// 	Monaco.languages.registerCodeLensProvider('javascript', {
-			// 		provideCodeLenses: function (model, token) {
-			// 			return {
-			// 				lenses: [
-			// 					{
-			// 						range: {
-			// 							startLineNumber: 1,
-			// 							startColumn: 1,
-			// 							endLineNumber: 2,
-			// 							endColumn: 1
-			// 						},
-			// 						id: 'First Line',
-			// 						command: {
-			// 							id: commandId,
-			// 							title: 'First Line'
-			// 						}
-			// 					}
-			// 				],
-			// 				dispose: () => {}
-			// 			};
-			// 		},
-			// 		resolveCodeLens: function (model, codeLens, token) {
-			// 			return codeLens;
-			// 		}
-			// 	});
-
-			window.onresize = function () {
-				editor.layout();
-			};
-		});
-		return () => {
-			editor.dispose();
-		};
 	});
 
-	async function addReview(line: number, review: Review) {
-		const text = await renderMarkdown(review.review);
-		const view = reviewTemplate.content.cloneNode(true) as HTMLDivElement;
-		const content = document.getElementsByClassName('content')[0];
-		content.innerHTML = text;
+	function convertPathsToTree(filePaths: fileListType) {
+		const root: TreeElement = {
+			children: [],
+			id: '',
+			label: 'root'
+		};
+		const lookup: Record<string, TreeElement> = { '': root };
+
+		for (const { path, hasCorrection } of filePaths) {
+			let parent: undefined | string = undefined;
+			let current: undefined | string = undefined;
+			let currentIndex = path.indexOf('/');
+			console.log(currentIndex);
+			do {
+				parent = current ?? '';
+				current = path.substring(0, currentIndex);
+				if (!lookup[current]) {
+					const newTreeElement: TreeElement = {
+						children: [],
+						id: current,
+						label: current.substring(current.lastIndexOf('/') + 1)
+					};
+					lookup[current] = newTreeElement;
+					lookup[parent!].children.push(newTreeElement);
+				}
+				currentIndex = path.indexOf('/', currentIndex + 1);
+				console.log(currentIndex);
+			} while (currentIndex > 0);
+
+			parent = current ?? '';
+			current = path;
+			if (!lookup[current]) {
+				const newTreeElement: TreeElement = {
+					children: [],
+					hasCorrection: hasCorrection,
+					id: current,
+					label: current.substring(current.lastIndexOf('/') + 1)
+				};
+				lookup[current] = newTreeElement;
+				lookup[parent!].children.push(newTreeElement);
+			}
+		}
+		return { root, lookup };
+	}
+
+	let assideDrag = $state(false);
+
+	function onMouseMove(e: MouseEvent) {
+		if (assideDrag) {
+			const width = e.clientX;
+			document.documentElement.style.setProperty('--aside-width', `${width}px`);
+
+			e.preventDefault();
+		}
+	}
+
+	function onStopDrag() {
+		assideDrag = false;
 	}
 </script>
 
-<select bind:value={selectedPath}>
-	{#each fileList as file}
-		<option disabled={!file.hasCorrection} value={file.path}>{file.path} </option>
-	{/each}
-</select>
+<svelte:body onmousemove={(e) => onMouseMove(e)} onmouseup={() => onStopDrag()} />
 
+<label class="hamburger" class:open class:assideDrag>
+	<input type="checkbox" bind:checked={open} />
+	<Hamburger bind:active={open} />
+</label>
+<aside>
+	<div class="top">
+		<label>
+			<input type="checkbox" bind:checked={both} />
 
-
-<div>
-	{#if currentState}
-		<div>Working on {currentState.path}</div>
-		<div>Progress {currentState.paragraph.value}/{currentState.paragraph.of}</div>
-		{#if !connectedToBackend}
-			<div>runtime {Duration.fromDurationLike({
-				milliseconds: currentState.time_in_ms,
-				seconds: 0,
-				minutes: 0,
-				hours: 0
-			})
-				.normalize()
-				.toHuman()} waiting for backend to come back.</div>
-		{:else if currentState.paragraph.value == currentState.paragraph.of}
-			<div>
-				runtime {Duration.fromDurationLike({
-					milliseconds: currentState.time_in_ms,
-					seconds: 0,
-					minutes: 0,
-					hours: 0
-				})
-					.normalize()
-					.toHuman()}
-			</div>
-		{:else}
-			<div>
-				runtime {now
-					.diff(currentState.timestamp)
-					.plus({ milliseconds: currentState.time_in_ms, seconds: 0, minutes: 0, hours: 0 })
-					.normalize()
-					.toHuman({
-						useGrouping: true,
-						listStyle: 'short',
-						notation: 'compact',
-						compactDisplay: 'short'
-					})}
-			</div>
-		{/if}
-	{/if}
-</div>
-<br/>
-<div>
-	{#if metadata}
-		<div>Progress {metadata.paragraph.value}/{metadata.paragraph.of}</div>
-		{#if !connectedToBackend}
-			<div>runtime {Duration.fromDurationLike({
-				milliseconds: metadata.time_in_ms,
-				seconds: 0,
-				minutes: 0,
-				hours: 0
-			})
-				.normalize()
-				.toHuman()} waiting for backend to come back.</div>
-		{:else if metadata.paragraph.value == metadata.paragraph.of}
-			<div>
-				runtime {Duration.fromDurationLike({
-					milliseconds: metadata.time_in_ms,
-					seconds: 0,
-					minutes: 0,
-					hours: 0
-				})
-					.normalize()
-					.toHuman()}
-			</div>
-		{:else}
-			<div>
-				runtime {now
-					.diff(metadata.timestamp)
-					.plus({ milliseconds: metadata.time_in_ms, seconds: 0, minutes: 0, hours: 0 })
-					.normalize()
-					.toHuman({
-						useGrouping: true,
-						listStyle: 'short',
-						notation: 'compact',
-						compactDisplay: 'short'
-					})}
-			</div>
-		{/if}
-		<div>
-			{#each metadata.messages as message}
-				<div>{message}</div>
-			{/each}
-		</div>
-	{/if}
-</div>
-
-
-<div bind:this={divEl} class="h-screen"></div>
-
-<template bind:this={reviewTemplate}>
-	<div class="review">
-		<header>
-			<button class="close" aria-label="close review">×</button>
-			<strong>Review</strong>
-		</header>
-		<div class="content"></div>
+			<Pin bind:isPinned={both} />
+		</label>
 	</div>
-</template>
+	<div class="center">
+		{#if tree}
+			tree {selectedPath}
+			<Tree bind:selectedElement={selectedPath} {tree} />
+		{/if}
+	</div>
+</aside>
 
-<style>
+<header>
+	<div>
+		{#if currentState}
+			<div>Working on {currentState.path}</div>
+			<div>Progress {currentState.paragraph.value}/{currentState.paragraph.of}</div>
+			{#if !connectedToBackend}
+				<div>
+					runtime {Duration.fromDurationLike({
+						milliseconds: currentState.time_in_ms,
+						seconds: 0,
+						minutes: 0,
+						hours: 0
+					})
+						.normalize()
+						.toHuman()} waiting for backend to come back.
+				</div>
+			{:else if currentState.paragraph.value == currentState.paragraph.of}
+				<div>
+					runtime {Duration.fromDurationLike({
+						milliseconds: currentState.time_in_ms,
+						seconds: 0,
+						minutes: 0,
+						hours: 0
+					})
+						.normalize()
+						.toHuman()}
+				</div>
+			{:else}
+				<div>
+					runtime {now
+						.diff(currentState.timestamp)
+						.plus({ milliseconds: currentState.time_in_ms, seconds: 0, minutes: 0, hours: 0 })
+						.normalize()
+						.toHuman({
+							useGrouping: true,
+							listStyle: 'short',
+							notation: 'compact',
+							compactDisplay: 'short'
+						})}
+				</div>
+			{/if}
+		{/if}
+	</div>
+</header>
+<div class="splittr" class:open onmousedown={() => (assideDrag = true)} />
+
+<main>
+	{#if selectedPath}
+		{#if lookup[selectedPath].hasCorrection}
+			<Diff path={selectedPath} {client} />
+		{:else}
+			<Textview path={selectedPath} {client} />
+		{/if}
+	{/if}
+</main>
+
+<style lang="scss">
 	:global(body) {
-		overflow: hidden;
-	}
-	.h-screen {
+		margin: 0;
+		padding: 0;
+		background-color: antiquewhite;
 		height: 100vh;
+		overflow: hidden;
+		width: 100vw;
+	}
+	:root {
+		--aside-width: 15rem;
+		--menu-background: violet;
+		--header-height: 3rem;
+		--splitter-width: 0.5rem;
+	}
+
+	header {
+		z-index: 100;
+		position: fixed;
+		top: 0;
+		left: 0;
+		right: 0;
+		height: var(--header-height);
+		background-color: var(--menu-background);
+		display: flex;
+		justify-content: center;
+		align-items: center;
+	}
+
+	.splittr.open {
+		position: fixed;
+		top: 0;
+		left: var(--aside-width);
+		width: var(--splitter-width);
+		height: 100vh;
+		background-color: black;
+		cursor: ew-resize;
+		z-index: 1000;
+		
+	}
+
+	label > input[type='checkbox'] {
+		display: none;
+	}
+	label.hamburger {
+		cursor: pointer;
+		position: fixed;
+		z-index: 900;
+		background-color: var(--menu-background);
+		top: 0;
+		right: calc(100vw - 3rem);
+		width: 3rem;
+		height: 3rem;
+		display: flex;
+		justify-content: center;
+		align-items: center;
+		border-bottom-right-radius: 50%;
+		transition: all 1s;
+		&.assideDrag{
+			transition: none	;
+		}
+		&.open {
+			right: calc(100vw - var(--aside-width));
+			border-bottom-right-radius: 0;
+		}
+	}
+	aside {
+		z-index: 200;
+		position: fixed;
+		top: 0;
+		bottom: 0;
+		left: 0;
+		width: var(--aside-width);
+		background-color: red;
+		transform: translateX(calc(-1 * var(--aside-width)));
+		transition: 1s transform;
+		.top {
+			background-color: yellow;
+			height: 3rem;
+			width: calc(var(--aside-width) - 3rem);
+		}
+		.center {
+			overflow-y: auto;
+			overflow-x: hidden;
+			height: calc(100vh - 3rem);
+		}
+	}
+	.hamburger:has(input:checked) + aside {
+		transform: translateX(0);
+	}
+	main {
+		z-index: 5;
+		top: var(--header-height);
+		left: 0;
+		right: 0;
+		height: 0;
+		position: fixed;
+	}
+
+	:global(.both) {
+		main {
+			background-color: red;
+			left: calc(var(--aside-width) + var(--splitter-width));
+		}
 	}
 </style>
