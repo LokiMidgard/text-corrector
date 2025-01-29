@@ -13,12 +13,12 @@ import { fireUpdate } from '$lib/trpc/router';
 const dir = 'repo';
 
 
-const bot = {
+const bot = () => ({
     name: 'Review Bot',
     email: 'noreply@review.bot',
     timestamp: Date.now(),
     timezoneOffset: new Date().getTimezoneOffset(),
-};
+});
 
 
 export type Review = {
@@ -127,7 +127,15 @@ export async function getText(path: string) {
     return new TextDecoder().decode(currentBlob.blob);
 }
 
-export async function setText(path: string, newText: string, commitData: Omit<git.CommitObject, 'paren' | 'tree'>) {
+export async function getCurrentCommitData() {
+    const branch = await git.resolveRef({ fs, dir, ref: 'HEAD' });
+    const currentCommitOid = await git.resolveRef({ fs, dir, ref: branch });
+
+    const currentCommit = await git.readCommit({ fs, dir, oid: currentCommitOid });
+    return currentCommit.commit;
+}
+
+export async function setText(path: string, newText: string, commitData: Omit<git.CommitObject, 'parent' | 'tree'>) {
     const branch = await git.resolveRef({ fs, dir, ref: 'HEAD' });
     const currentCommitOid = await git.resolveRef({ fs, dir, ref: branch });
 
@@ -194,7 +202,18 @@ export type CorrectionMetadata = {
     time_in_ms: number;
 };
 
-export async function correctText(path: string, corrected: string, metadata: CorrectionMetadata) {
+export async function correctText(path: string, corrected: string, metadata: CorrectionMetadata | null, commitData?: { message?: string } & Omit<git.CommitObject, 'message' | 'parent' | 'tree'>) {
+
+    if (metadata == null) {
+        metadata = (await getCorrection(path)).metadata;
+        if (metadata.paragraph.of == undefined) {
+            throw new Error(`Can't modify text before correction is started and finished for path ${path}`)
+        }
+        if (metadata.paragraph.value < metadata.paragraph.of) {
+            throw new Error(`Can't modify text before correction is finised (${metadata.paragraph.value} ${metadata.paragraph.of}) for path ${path}`)
+        }
+    }
+
     const head = await git.resolveRef({ fs, dir, ref: 'HEAD' });
     const currentCommit = await git.resolveRef({ fs, dir, ref: head });
 
@@ -209,9 +228,6 @@ export async function correctText(path: string, corrected: string, metadata: Cor
         fs, dir,
         blob: new TextEncoder().encode(corrected),
     });
-    console.log('metadataBlobOid', metadataBlobOid);
-    console.log('correctionBlobOid', correctionBlobOid);
-    console.log('currentBlob', currentBlob.oid);
 
     const tree = await git.writeTree({
         fs,
@@ -249,18 +265,20 @@ export async function correctText(path: string, corrected: string, metadata: Cor
     }
 
 
-
+    const actualCommitData = {
+        message: `Correct ${path} ${metadata.paragraph.value}/${metadata.paragraph.of} ${metadata.time_in_ms}`,
+        ...(commitData ?? {
+            author: bot(),
+            committer: bot(),
+        }),
+        tree,
+        parent: parent,
+    };
 
     const commit = await git.writeCommit({
         fs,
         dir,
-        commit: {
-            message: `Correct ${path} ${metadata.paragraph.value}/${metadata.paragraph.of} ${metadata.time_in_ms}`,
-            tree,
-            parent: parent,
-            author: bot,
-            committer: bot,
-        }
+        commit: actualCommitData
     });
     lastCommit = commit;
     console.log('commit', commit);

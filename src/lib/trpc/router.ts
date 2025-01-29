@@ -1,7 +1,7 @@
 // lib/trpc/router.ts
 import type { Context } from '$lib/trpc/context';
 import { initTRPC } from '@trpc/server';
-import { getCorrection, getReviews, listFiles, type CorrectionMetadata } from '../server/git';
+import { correctText, getCorrection, getCurrentCommitData, getReviews, listFiles, setText, type CorrectionMetadata } from '../server/git';
 import { z } from 'zod';
 import { transformFromAst } from '../server/wol';
 import { observable } from '@trpc/server/observable';
@@ -35,8 +35,6 @@ export const router = t.router({
 
         return `Hello tRPC v10 @ ${new Date().toLocaleTimeString()}`;
     }),
- 
-
     listFiles: t.procedure.query(async () => {
         console.log('listFiles');
         const files = await listFiles();
@@ -99,11 +97,41 @@ export const router = t.router({
     //     return await ip;
     // }),
 
-    listRefiews: t.procedure.query(async () => {
-
-        const reviews = await getReviews();
-        return reviews;
+    getCommitData: t.procedure.query(async () => {
+        return await getCurrentCommitData();
     }),
+    updateText: t.procedure.input(z.object({
+        path: z.string(),
+        text: z.string(),
+        commitDetails: z.object({
+            message: z.string().nonempty(),
+            author: z.object({ name: z.string(), email: z.string().email() }),
+        })
+    })).query(async ({ input }) => {
+        const committer = {
+            ...input.commitDetails.author,
+            timestamp: Date.now(),
+            timezoneOffset: new Date().getTimezoneOffset()
+        };
+        await correctText(input.path, input.text, null, { ...input.commitDetails, committer, author: committer });
+    }),
+
+    finishText: t.procedure.input(z.object({
+        path: z.string(),
+        text: z.string(),
+        commitDetails: z.object({
+            message: z.string().nonempty(),
+            author: z.object({ name: z.string(), email: z.string().email() }),
+        })
+    })).query(async ({ input }) => {
+        const committer = {
+            ...input.commitDetails.author,
+            timestamp: Date.now(),
+            timezoneOffset: new Date().getTimezoneOffset()
+        };
+        await setText(input.path, input.text, { ...input.commitDetails, committer, author: committer });
+    }),
+
 });
 
 export type Router = typeof router;
