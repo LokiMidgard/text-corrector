@@ -41,6 +41,7 @@
 		"luxon": "^3.5.0",
 		"monaco-editor": "^0.52.0",
 		"monaco-markdown": "^0.0.12",
+		"node-windows-root-certs-napi": "^1.22.0",
 		"octokit": "^4.0.2",
 		"ollama": "^0.5.12",
 		"ping": "^0.4.4",

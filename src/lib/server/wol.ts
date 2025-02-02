@@ -20,12 +20,14 @@ import type { BlockContent, DefinitionContent, Paragraph, Root } from 'mdast';
 
 import * as git from '$lib/server/git'
 import { fireUpdate } from '$lib/trpc/router';
+import * as windowsRootCerts  from 'node-windows-root-certs-napi';
 
 const resolver = new Resolver();
 
 const envParser = z.object({
     OLLAMA_HOST: z.string(),
     OLLAMA_PROTOCOL: z.string(),
+    OLLAMA_PORT: z.string(),
     OLLAMA_MAC: z.string(),
     OLLAMA_IP: z.string().ip(),
     GITHUB_API_TOKEN: z.string(),
@@ -47,6 +49,7 @@ const requiredFiles = [
     'systems/improvement.system'
 ];
 
+
 const missingFiles = requiredFiles.filter(file => !fs.existsSync(file));
 
 if (missingFiles.length > 0) {
@@ -58,6 +61,7 @@ if (missingFiles.length > 0) {
 
 const host = env.OLLAMA_HOST;
 const protocol = env.OLLAMA_PROTOCOL;
+const port = env.OLLAMA_PORT;
 const mac = env.OLLAMA_MAC;
 const ip = env.OLLAMA_IP;
 
@@ -105,6 +109,9 @@ const model: keyof typeof model_properties = 'qwen2.5:32b';
 const context_window = env.CONTEXT_WINDOW ?? model_properties[model].context_window;
 
 
+windowsRootCerts.useWindowsCerts();
+
+
 async function performWake() {
     // Path to the named pipe (same as in your Bash script)
     const pipePath = '/opt/wol/mac_pipe';
@@ -149,9 +156,14 @@ async function wake() {
     console.log('wait for server to be healthy');
     const isHealthy = async () => {
         try {
-            console.log(`call http://${host}/api/version`);
-            return (await fetch(`http://${host}/api/version`)).ok;
-        } catch {
+            console.log(`call ${protocol}://${host}:${port}/api/version`);
+            const httpResponse = await fetch(`${protocol}://${host}:${port}/api/version`);
+            if(!httpResponse.ok){
+                console.log(`${protocol}://${host}:${port}/api/version failed ${httpResponse.status}`);
+            }
+            return httpResponse.ok;
+        } catch (e){
+            console.error(e);
             return false;
         }
     }
@@ -167,7 +179,7 @@ async function wake() {
 
 async function createModels() {
     await wake();
-    const ollama = new Ollama({ host: `http://${host}`, fetch: noTimeoutFetch });
+    const ollama = new Ollama({ host: `${protocol}://${host}:${port}`, fetch: noTimeoutFetch });
     const models = await ollama.list();
 
 
@@ -267,7 +279,7 @@ async function correct(path: string) {
     console.log('prepare ollama');
     await createModels();
 
-    const ollama = new Ollama({ host: `http://${host}`, fetch: noTimeoutFetch });
+    const ollama = new Ollama({ host: `${protocol}://${host}:${port}`, fetch: noTimeoutFetch });
 
     const textblocks = ast.children.reverse();
     for (let i = 0; i < textblocks.length; i++) {
@@ -289,7 +301,8 @@ async function correct(path: string) {
         for (let trys = 0; trys < 10; trys++) {
 
             console.log(`Process Part\n\n${text}\n\n`);
-
+ // eslint-disable-next-line no-debugger
+//  debugger;
             const result = await ollama.chat({ model: 'spelling', messages: [{ role: 'user', content: text }], stream: true });
             const parts = [] as string[];
 

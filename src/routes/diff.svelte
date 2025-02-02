@@ -23,7 +23,10 @@
 
 	let metadata: undefined | (UpdateData & { timestamp: DateTime }) = $state();
 
-	let reviewTemplate: HTMLTemplateElement;
+	let openDialog: undefined | 'draft' | 'commit' = $state();
+	let dialog_name = $state('');
+	let dialog_email = $state('');
+	let dialog_message = $state('');
 
 	$effect(() => {
 		if (path && originalModel && correctionModel) {
@@ -118,83 +121,6 @@
 				original: originalModel,
 				modified: correctionModel
 			});
-			// const commandId = editor.addCommand(
-			// 	0,
-			// 	function () {
-			// 		// Create a zone over the margin. Uses the trick explained
-			// 		// at https://github.com/Microsoft/monaco-editor/issues/373
-
-			// 		// overlay that will be placed over the zone.
-			// 		let overlayDom = document.createElement('div');
-			// 		overlayDom.id = 'overlayId';
-			// 		overlayDom.style.width = '100%';
-			// 		overlayDom.style.background = '#ffb275';
-			// 		const button = document.createElement('button');
-			// 		button.innerHTML = 'Remove';
-			// 		overlayDom.appendChild(button);
-
-			// 		// https://microsoft.github.io/monaco-editor/api/interfaces/monaco.editor.ioverlaywidget.html
-			// 		let overlayWidget = {
-			// 			getId: () => 'overlay.zone.widget',
-			// 			getDomNode: () => overlayDom,
-			// 			getPosition: () => null
-			// 		};
-			// 		editor.addOverlayWidget(overlayWidget);
-
-			// 		// Used only to compute the position.
-			// 		let zoneNode = document.createElement('div');
-			// 		zoneNode.style.background = '#8effc9';
-			// 		zoneNode.id = 'zoneId';
-
-			// 		// Can be used to fill the margin
-			// 		let marginDomNode = document.createElement('div');
-			// 		marginDomNode.style.background = '#ff696e';
-			// 		marginDomNode.id = 'zoneMarginId';
-
-			// 		editor.changeViewZones(function (changeAccessor) {
-			// 			changeAccessor.addZone({
-			// 				afterLineNumber: 1,
-			// 				heightInLines: 3,
-			// 				domNode: zoneNode,
-			// 				marginDomNode: marginDomNode,
-			// 				onDomNodeTop: (top) => {
-			// 					overlayDom.style.top = top + 'px';
-			// 				},
-			// 				onComputedHeight: (height) => {
-			// 					overlayDom.style.height = height + 'px';
-			// 				}
-			// 			});
-			// 		});
-			// 	},
-			// 	''
-			// );
-			// if (commandId)
-			// 	Monaco.languages.registerCodeLensProvider('javascript', {
-			// 		provideCodeLenses: function (model, token) {
-			// 			return {
-			// 				lenses: [
-			// 					{
-			// 						range: {
-			// 							startLineNumber: 1,
-			// 							startColumn: 1,
-			// 							endLineNumber: 2,
-			// 							endColumn: 1
-			// 						},
-			// 						id: 'First Line',
-			// 						command: {
-			// 							id: commandId,
-			// 							title: 'First Line'
-			// 						}
-			// 					}
-			// 				],
-			// 				dispose: () => {}
-			// 			};
-			// 		},
-			// 		resolveCodeLens: function (model, codeLens, token) {
-			// 			return codeLens;
-			// 		}
-			// 	});
-
 			window.onresize = function () {
 				editor.layout();
 			};
@@ -204,43 +130,101 @@
 		};
 	});
 
-	async function addReview(line: number, review: Review) {
-		const text = await renderMarkdown(review.review);
-		const view = reviewTemplate.content.cloneNode(true) as HTMLDivElement;
-		const content = document.getElementsByClassName('content')[0];
-		content.innerHTML = text;
+	async function store() {
+		const text = correctionModel?.getValue();
+		if (!text) {
+			throw new Error('No text found');
+		}
+		if (openDialog == 'commit') {
+			await client.finishText.query({
+				path,
+				text,
+				commitDetails: {
+					author: {
+						email: dialog_email,
+						name: dialog_name
+					},
+					message: dialog_message
+				}
+			});
+			updateText(path);
+		} else if (openDialog == 'draft') {
+			await client.updateText.query({
+				path,
+				text,
+				commitDetails: {
+					author: {
+						email: dialog_email,
+						name: dialog_name
+					},
+					message: dialog_message
+				}
+			});
+		}
+		openDialog = undefined;
 	}
 </script>
 
-<div>
-	{#if metadata}
-		<div>Progress {metadata.paragraph.value}/{metadata.paragraph.of}</div>
+<dialog open={openDialog != undefined}>
+	<article>
+		<header>
+			<button rel="prev">x</button>
+			{#if openDialog == 'commit'}
+				<strong>Complete Review</strong>
+			{:else if openDialog == 'draft'}
+				<strong>Store Draft</strong>
+			{/if}
+		</header>
+		<label>
+			Name
+			<input type="text" />
+		</label>
+		<label>
+			E-Mail
+			<input type="text" />
+		</label>
+		<label>
+			Message
+			<textarea />
+		</label>
+		<footer>
+			<button onclick={() => store()}>Save</button><button
+				onclick={() => (openDialog = undefined)}
+				class="outline">Cancel</button
+			>
+		</footer>
+	</article>
+</dialog>
 
-		<div>
-			{#each metadata.messages as message}
-				<div>{message}</div>
-			{/each}
-		</div>
-	{/if}
-</div>
+<header>
+	<button>Save Draft</button>
+	<button>Complete Review</button>
+	<div>
+		{#if metadata}
+			<div>Progress {metadata.paragraph.value}/{metadata.paragraph.of}</div>
+
+			<div>
+				{#each metadata.messages as message}
+					<div>{message}</div>
+				{/each}
+			</div>
+		{/if}
+	</div>
+</header>
 
 <div bind:this={divEl} class="h-screen"></div>
 
-<template bind:this={reviewTemplate}>
-	<div class="review">
-		<header>
-			<button class="close" aria-label="close review">×</button>
-			<strong>Review</strong>
-		</header>
-		<div class="content"></div>
-	</div>
-</template>
-
 <style>
+	:root {
+		--header-hight: 3rem;
+	}
 	:global(body) {
 		overflow: hidden;
 	}
+	:global(main) > header {
+		height: var(--header-hight);
+	}
 	.h-screen {
-		height: 100vh;
+		height: calc(100cqh - var(--header-hight));
 	}
 </style>

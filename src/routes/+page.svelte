@@ -61,6 +61,10 @@
 			onData(message) {
 				console.log('message', message);
 				currentState = { ...message, timestamp: DateTime.now() };
+				// set correction for newly started work
+				if (!lookup[message.path].hasCorrection) {
+					lookup[message.path].hasCorrection = true;
+				}
 			}
 		});
 	});
@@ -242,7 +246,6 @@
 		background-color: black;
 		cursor: ew-resize;
 		z-index: 1000;
-		
 	}
 
 	label > input[type='checkbox'] {
@@ -262,8 +265,8 @@
 		align-items: center;
 		border-bottom-right-radius: 50%;
 		transition: all 1s;
-		&.assideDrag{
-			transition: none	;
+		&.assideDrag {
+			transition: none;
 		}
 		&.open {
 			right: calc(100vw - var(--aside-width));
@@ -299,13 +302,15 @@
 		top: var(--header-height);
 		left: 0;
 		right: 0;
-		height: 0;
+		bottom: 0;
+		// height: calc(100vh - var(--header-height));
 		position: fixed;
+		container-name: mainframe  ;
+		container-type: size;
 	}
 
 	:global(.both) {
 		main {
-			background-color: red;
 			left: calc(var(--aside-width) + var(--splitter-width));
 		}
 	}
