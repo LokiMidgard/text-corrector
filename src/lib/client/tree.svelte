@@ -59,7 +59,6 @@
 	summary,
 	label {
 		/* width: 100%; */
-		background-color: green;
 		margin: 0;
 		padding: 0;
 		display: block;

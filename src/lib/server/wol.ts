@@ -12,6 +12,8 @@ import { unified } from 'unified';
 import remarkWiki from 'remark-wiki-link';
 import { Agent } from 'undici'
 
+import https from 'https';
+
 import * as svelteEnve from '$env/static/private'
 
 import { z } from 'zod';
@@ -20,7 +22,8 @@ import type { BlockContent, DefinitionContent, Paragraph, Root } from 'mdast';
 
 import * as git from '$lib/server/git'
 import { fireUpdate } from '$lib/trpc/router';
-import * as windowsRootCerts  from 'node-windows-root-certs-napi';
+import * as windowsRootCerts from 'node-windows-root-certs-napi';
+import { systemCertsSync } from 'system-ca';
 
 const resolver = new Resolver();
 
@@ -38,6 +41,7 @@ const envParser = z.object({
 });
 export type Env = z.infer<typeof envParser>;
 
+const ca = systemCertsSync();
 
 console.log()
 const env = envParser.parse(svelteEnve);
@@ -69,12 +73,24 @@ const githubApiToken = env.GITHUB_API_TOKEN;
 const repo = env.REPO;
 
 
+const fetchAgent = protocol == 'https' ? new https.Agent({ ca }) : undefined;
+
 const pathFilter = env.PATH_FILTER ? new RegExp(env.PATH_FILTER) : /story\/.*\.md/;
+const dispatcher= new Agent({ headersTimeout: Number.MAX_SAFE_INTEGER, 
+    connect:{
+        ca
+    }
+});
 
 const noTimeoutFetch = (input: string | URL | globalThis.Request, init?: RequestInit) => {
     const someInit = init || {}
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return fetch(input, { ...someInit, keepalive: true, dispatcher: new Agent({ headersTimeout: Number.MAX_SAFE_INTEGER }) as any })
+    return fetch(input, {
+        ...someInit,
+        keepalive: true,
+        dispatcher,
+        agent: fetchAgent
+    })
 }
 
 type ModelPropertys = {
@@ -156,13 +172,13 @@ async function wake() {
     console.log('wait for server to be healthy');
     const isHealthy = async () => {
         try {
+            const httpResponse = await fetch(`${protocol}://${host}:${port}/api/version`,{dispatcher});
             console.log(`call ${protocol}://${host}:${port}/api/version`);
-            const httpResponse = await fetch(`${protocol}://${host}:${port}/api/version`);
-            if(!httpResponse.ok){
+            if (!httpResponse.ok) {
                 console.log(`${protocol}://${host}:${port}/api/version failed ${httpResponse.status}`);
             }
             return httpResponse.ok;
-        } catch (e){
+        } catch (e) {
             console.error(e);
             return false;
         }
@@ -301,8 +317,8 @@ async function correct(path: string) {
         for (let trys = 0; trys < 10; trys++) {
 
             console.log(`Process Part\n\n${text}\n\n`);
- // eslint-disable-next-line no-debugger
-//  debugger;
+            // eslint-disable-next-line no-debugger
+            //  debugger;
             const result = await ollama.chat({ model: 'spelling', messages: [{ role: 'user', content: text }], stream: true });
             const parts = [] as string[];
 

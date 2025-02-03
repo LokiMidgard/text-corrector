@@ -68,8 +68,8 @@ export async function updateRepo(githubApiToken: string, repo: string) {
                 fs,
                 http,
                 dir,
-                author: bot,
-                committer: bot,
+                author: bot(),
+                committer: bot(),
                 url: clone_url.href,
             });
             console.log('Repository updated successfully');

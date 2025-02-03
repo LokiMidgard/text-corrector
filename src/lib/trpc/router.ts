@@ -112,12 +112,19 @@ export const router = t.router({
             author: z.object({ name: z.string(), email: z.string().email() }),
         })
     })).query(async ({ input }) => {
+        console.log('updateText', input);
         const committer = {
             ...input.commitDetails.author,
             timestamp: Date.now(),
             timezoneOffset: new Date().getTimezoneOffset()
         };
-        await correctText(input.path, input.text, null, { ...input.commitDetails, committer, author: committer });
+        try {
+            await correctText(input.path, input.text, null, { ...input.commitDetails, committer, author: committer });
+            
+        } catch (error) {
+            console.error('updateText', error);
+            throw error;
+        }
     }),
 
     finishText: t.procedure.input(z.object({

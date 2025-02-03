@@ -135,6 +135,7 @@
 		if (!text) {
 			throw new Error('No text found');
 		}
+		console.log('store', text);
 		if (openDialog == 'commit') {
 			await client.finishText.query({
 				path,
@@ -175,18 +176,20 @@
 				<strong>Store Draft</strong>
 			{/if}
 		</header>
-		<label>
-			Name
-			<input type="text" />
-		</label>
-		<label>
-			E-Mail
-			<input type="text" />
-		</label>
-		<label>
-			Message
-			<textarea />
-		</label>
+		<form>
+			<label>
+				Name
+				<input type="text" bind:value={dialog_name} />
+			</label>
+			<label>
+				E-Mail
+				<input type="text" bind:value={dialog_email} />
+			</label>
+			<label>
+				Message
+				<textarea bind:value={dialog_message} />
+			</label>
+		</form>
 		<footer>
 			<button onclick={() => store()}>Save</button><button
 				onclick={() => (openDialog = undefined)}
@@ -197,8 +200,16 @@
 </dialog>
 
 <header>
-	<button>Save Draft</button>
-	<button>Complete Review</button>
+	<button
+		onclick={() => {
+			openDialog = 'draft';
+		}}>Save Draft</button
+	>
+	<button
+		onclick={() => {
+			openDialog = 'commit';
+		}}>Complete Review</button
+	>
 	<div>
 		{#if metadata}
 			<div>Progress {metadata.paragraph.value}/{metadata.paragraph.of}</div>
@@ -217,6 +228,9 @@
 <style>
 	:root {
 		--header-hight: 3rem;
+	}
+	dialog {
+		z-index: 1000;
 	}
 	:global(body) {
 		overflow: hidden;

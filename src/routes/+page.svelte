@@ -8,6 +8,7 @@
 	import Pin from '$lib/client/pin.svelte';
 	import { DateTime, Duration } from 'luxon';
 	import type { UpdateData } from '$lib/trpc/router';
+	import '$lib/default.scss';
 
 	let open = $state(true);
 
@@ -212,14 +213,13 @@
 	:global(body) {
 		margin: 0;
 		padding: 0;
-		background-color: antiquewhite;
 		height: 100vh;
 		overflow: hidden;
 		width: 100vw;
 	}
 	:root {
 		--aside-width: 15rem;
-		--menu-background: violet;
+		--menu-background: var(--pico-primary);
 		--header-height: 3rem;
 		--splitter-width: 0.5rem;
 	}
@@ -280,11 +280,9 @@
 		bottom: 0;
 		left: 0;
 		width: var(--aside-width);
-		background-color: red;
 		transform: translateX(calc(-1 * var(--aside-width)));
 		transition: 1s transform;
 		.top {
-			background-color: yellow;
 			height: 3rem;
 			width: calc(var(--aside-width) - 3rem);
 		}
