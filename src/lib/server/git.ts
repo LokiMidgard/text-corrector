@@ -9,6 +9,7 @@ import type { BlockContent, DefinitionContent } from 'mdast';
 
 import http from 'isomorphic-git/http/web';
 import { fireUpdate } from '$lib/trpc/router';
+import type { CorrectionResult } from './wol';
 
 const dir = 'repo';
 
@@ -200,6 +201,7 @@ export type CorrectionMetadata = {
     paragraph: { value: number, of: number | undefined };
     messages: Array<BlockContent | DefinitionContent>[];
     time_in_ms: number;
+    paragraphInfo: Record<number, CorrectionResult>
 };
 
 export async function correctText(path: string, corrected: string, metadata: CorrectionMetadata | null, commitData?: { message?: string } & Omit<git.CommitObject, 'message' | 'parent' | 'tree'>) {

@@ -18,13 +18,34 @@ import * as svelteEnve from '$env/static/private'
 
 import { z } from 'zod';
 
-import type { BlockContent, DefinitionContent, Paragraph, Root } from 'mdast';
+import type { BlockContent, DefinitionContent, Paragraph, Root, RootContent } from 'mdast';
 
 import * as git from '$lib/server/git'
 import { fireUpdate } from '$lib/trpc/router';
 import * as windowsRootCerts from 'node-windows-root-certs-napi';
 import { systemCertsSync } from 'system-ca';
+import { zodToJsonSchema } from "zod-to-json-schema";
 
+type CorrectionInput = {
+    context: {
+        storyContext: string,
+        intendedStyle: string,
+        previousParagraph: string | null,
+        nextParagraph: string | null,
+    }
+    paragraphToCorrect: string,
+}
+
+const CorrectionResultParser = z.object({
+    involvedCharacters: z.array(z.string()),
+    corrected: z.string(),
+    alternative: z.string(),
+    goodPoints: z.string(),
+    badPoints: z.string(),
+    judgment: z.number(),
+});
+
+export type CorrectionResult = z.infer<typeof CorrectionResultParser>;
 const resolver = new Resolver();
 
 const envParser = z.object({
@@ -41,13 +62,17 @@ const envParser = z.object({
 });
 export type Env = z.infer<typeof envParser>;
 
-const ca = systemCertsSync();
+// const ca = systemCertsSync();
+const ca = undefined;
+windowsRootCerts.useWindowsCerts();
+
 
 console.log()
 const env = envParser.parse(svelteEnve);
 
 // check if all required systems files are present
 const requiredFiles = [
+    'systems/general.system',
     'systems/spelling.system',
     'systems/correction.system',
     'systems/improvement.system'
@@ -76,8 +101,9 @@ const repo = env.REPO;
 const fetchAgent = protocol == 'https' ? new https.Agent({ ca }) : undefined;
 
 const pathFilter = env.PATH_FILTER ? new RegExp(env.PATH_FILTER) : /story\/.*\.md/;
-const dispatcher= new Agent({ headersTimeout: Number.MAX_SAFE_INTEGER, 
-    connect:{
+const dispatcher = new Agent({
+    headersTimeout: Number.MAX_SAFE_INTEGER,
+    connect: {
         ca
     }
 });
@@ -125,7 +151,6 @@ const model: keyof typeof model_properties = 'qwen2.5:32b';
 const context_window = env.CONTEXT_WINDOW ?? model_properties[model].context_window;
 
 
-windowsRootCerts.useWindowsCerts();
 
 
 async function performWake() {
@@ -172,7 +197,7 @@ async function wake() {
     console.log('wait for server to be healthy');
     const isHealthy = async () => {
         try {
-            const httpResponse = await fetch(`${protocol}://${host}:${port}/api/version`,{dispatcher});
+            const httpResponse = await fetch(`${protocol}://${host}:${port}/api/version`, { dispatcher });
             console.log(`call ${protocol}://${host}:${port}/api/version`);
             if (!httpResponse.ok) {
                 console.log(`${protocol}://${host}:${port}/api/version failed ${httpResponse.status}`);
@@ -202,7 +227,14 @@ async function createModels() {
     const spellingSystem = fs.readFileSync('systems/spelling.system', 'utf8');
     const correctionSystem = fs.readFileSync('systems/correction.system', 'utf8');
     const improvementSystem = fs.readFileSync('systems/improvement.system', 'utf8');
+    const generalSystem = fs.readFileSync('systems/general.system', 'utf8');
 
+    if (models.models.every(m => m.name !== 'general')) {
+        await ollama.create({ model: 'general', from: model, system: generalSystem, parameters: { num_ctx: context_window } });
+    } else {
+        await ollama.delete({ model: 'general' });
+        await ollama.create({ model: 'general', from: model, system: generalSystem, parameters: { num_ctx: context_window } });
+    }
     if (models.models.every(m => m.name !== 'spelling')) {
         await ollama.create({ model: 'spelling', from: model, system: spellingSystem, parameters: { num_ctx: context_window } });
     } else {
@@ -270,7 +302,7 @@ export async function checkRepo(): Promise<never> {
 async function correct(path: string) {
 
     const { original, correction, metadata } = (await git.tryGetCorrection(path)) ?? {
-        metadata: { paragraph: { value: 0, of: undefined }, time_in_ms: 0, messages: [] },
+        metadata: { paragraph: { value: 0, of: undefined }, time_in_ms: 0, messages: [], paragraphInfo: {} },
         correction: await git.getText(path),
         original: await git.getText(path)
     };
@@ -279,14 +311,90 @@ async function correct(path: string) {
         return false;
     }
 
+    const desiredStyle = `
+    Du bewertest und verbesserst Textabschnitte, indem du sie inhaltlich und stilistisch überarbeitest.
+Dabei soll der verbesserte Text emotional, bildlich und plastisch wirken, sofern nicht anders festgelegt.
+`;
+    const storyContext = `
+    
+# Formatierung und Struktur
+
+- Der Text ist in Markdown geschrieben, du gibst auch Markdown zurück
+- Der Text besitzt nur Überschriften, Fett, Kursiv und Wörtlicherede (\`"\`) als Formatierung
+- Vor der Wörtlichenrede ist immer ein Marker der angibt wer gerade Spricht.
+  Wenn der Charakter Fay etwas sagt, sieht das so aus [[Fay]]"Hallo."
+- Fehlt der Marker vor der Wörtlichenrede ist dies ein Fehler.
+
+# Deine Aufgabe
+
+- Zu dem Eingabetext eine Fassung dieses zurückzuliefern,
+  bei der Grammatikfehler und Rechtschreibfehler korrigiert sind.
+- Fehlende Marker zur Wörtlichen Rede Ergänzen. Wenn möglich versuche
+  die redende Person abzuleiten und in den Marker zu schreiben.
+- Gliederung der Absätze verbessern. Zu lange Absätze wenn möglich und
+  Sinnvoll in kürzere Aufteilen.
+- Der Zurückgegebene Text enthält sonst keine weiteren Anmerkungen.
+- Wenn keine Änderungen gemacht werden müssen, gibst du den Eingabetext
+  unverändert zurück.
+
+# Informationen zur Geschichte
+
+- Die Texte sind in Deutsch geschrieben.
+- Der Protagonist heißt Fay
+- In der Geschichte existiert eine Spezies namens Telchinen
+- Telchine haben kein Geschlecht
+- Ausschließlich für Telchine wird die Geschlechtsneutrale Sprache nach De-e-System verwendet
+- Die Geschichte ist in der dritten Person in der Vergangenheit geschrieben
+- Der Erzähler beschre
+
+
+# Wiederkehrende Charaktere
+
+**Fay**:
+Protagonist Männlich
+
+**Dio**:
+Männlich
+
+**Pho**:
+Telchin
+
+**Tia**
+Weiblich
+
+**Ren**
+Weiblich
+
+# Beispiel Geschlechtsneutraler Sprache
+
+\`\`\`
+Pho sprang direkt darauf an und verwickelte ihn
+in ein Gespräch. Er überlegte ob seine Herangehensweise dabei korrekt war.
+Für einen Handwerker war er jedenfalls geschickt.
+\`\`\`
+
+wird nach De-e-System umgeschrieben zu
+
+\`\`\`
+Pho sprang direkt darauf an und verwickelte en
+in ein Gespräch. En überlegte ob ense Herangehensweise dabei korrekt war.
+Für ein Handwerkere war en jedenfalls geschickt.
+\`\`\`
+    `;
+
+
     let story = correction;
     const messages: Array<BlockContent | DefinitionContent>[] = [];
     messages.push(...(metadata.messages ?? []));
 
     // need to get ast from original so the paragraph count is correct
-    const ast = await transformToAst(original);
-    if (ast.children.length !== metadata.paragraph.of) {
-        metadata.paragraph.of = ast.children.length;
+    
+    const paragraphsReversed = await paragraphsWithPrefixs(original).reverse();
+
+    
+
+    if (paragraphsReversed.length !== metadata.paragraph.of) {
+        metadata.paragraph.of = paragraphsReversed.length;
         await git.correctText(path, story, metadata);
     } else {
         fireUpdate(path, metadata);
@@ -297,21 +405,26 @@ async function correct(path: string) {
 
     const ollama = new Ollama({ host: `${protocol}://${host}:${port}`, fetch: noTimeoutFetch });
 
-    const textblocks = ast.children.reverse();
-    for (let i = 0; i < textblocks.length; i++) {
+    for (let i = 0; i < paragraphsReversed.length; i++) {
         const startBlock = now();
         if (i < metadata.paragraph.value) {
             console.log(`skip paragraph ${i}`);
             continue;
         }
-        let element = [textblocks[i]];
-        while (i + 1 < textblocks.length && textblocks[i + 1].type !== 'paragraph') {
-            // add previous non paragraph elements to current
-            element = [textblocks[i + 1], ...element];
-            i++;
-        }
+        const element = paragraphsReversed[i];
         metadata.paragraph.value = i;
-        const text = transformFromAst({ type: 'root', children: element });
+        const text = element.text;
+        const prev = i < paragraphsReversed.length ? paragraphsReversed[i + 1]?.text : undefined;
+        const next = i > 0 ? paragraphsReversed[i - 1]?.text : undefined;
+        const input = {
+            context: {
+                storyContext: storyContext,
+                intendedStyle: desiredStyle,
+                previousParagraph: prev ?? null,
+                nextParagraph: next ?? null,
+            },
+            paragraphToCorrect: text,
+        } satisfies CorrectionInput;
         let changes = false;
         let currentTime = 0;
         for (let trys = 0; trys < 10; trys++) {
@@ -319,7 +432,7 @@ async function correct(path: string) {
             console.log(`Process Part\n\n${text}\n\n`);
             // eslint-disable-next-line no-debugger
             //  debugger;
-            const result = await ollama.chat({ model: 'spelling', messages: [{ role: 'user', content: text }], stream: true });
+            const result = await ollama.chat({ model: 'general', messages: [{ role: 'user', content: JSON.stringify(input, undefined, 2) }], format: zodToJsonSchema(CorrectionResultParser), stream: true });
             const parts = [] as string[];
 
 
@@ -334,12 +447,19 @@ async function correct(path: string) {
             console.log(`Response Finished`);
             // console.log( part.message.content);
 
-            const corrected = parts.join('');
+            const correctionJsonText = parts.join('');
             // console.log( formatMarkdown(corrected));
 
-            if (corrected.length < text.length * 0.8) {
+            const { data: correction, success, error } = CorrectionResultParser.safeParse(JSON.parse(correctionJsonText));
+
+
+            if (!success) {
                 // probably not the result we want
                 console.log(`retry  ${trys} of 10`);
+                if (!error.isEmpty) {
+                    console.error(error.toString());
+                    messages.push([ParagrahTexts(error.toString())]);
+                }
                 try {
 
                     messages.push([
@@ -348,13 +468,13 @@ async function correct(path: string) {
                             children: [
                                 {
                                     type: 'text',
-                                    value: `retry ${trys} of 10 for textpart ${textblocks.length - 1}`
+                                    value: `retry ${trys} of 10 for textpart ${i}`
                                 }]
                         },
                         {
                             type: 'blockquote',
                             children: [
-                                ...transformToAst(corrected).children as BlockContent[]
+                                ...transformToAst(`\`\`\`\n${correctionJsonText}\n\`\`\``).children as BlockContent[]
                             ]
                         }
                     ]
@@ -366,13 +486,14 @@ async function correct(path: string) {
                 continue;
             }
 
-            const start_of_text = element[0].position!.start.offset!;
-            const end_of_text = element[element.length - 1].position!.end.offset!;
+            const start_of_text = element.start!.offset!;
+            const end_of_text = element.end!.offset!;
 
             const newStory = story.substring(0, start_of_text)
-                + formatMarkdown(corrected) + (end_of_text < story.length ? (
+                + formatMarkdown(correction.corrected) + (end_of_text < story.length ? (
                     story.substring(end_of_text + 1)) : ''
                 );
+            metadata.paragraphInfo[paragraphsReversed.length - i - 1] = correction;
             metadata.paragraph.value = i + 1
             await git.correctText(path, newStory, metadata);
             changes = story !== newStory
@@ -384,12 +505,8 @@ async function correct(path: string) {
             break;
         }
         if (!changes) {
-            console.log(`No Changes for ${textblocks.length - i} to ${textblocks.length - i + element.length - 1}`);
-            if (element.length > 1) {
-                messages.push([ParagrahTexts(`No changes for parts ${textblocks.length - i} to ${textblocks.length - i + element.length - 1}`)])
-            } else {
-                messages.push([ParagrahTexts(`No changes for part ${textblocks.length - i}`)])
-            }
+            console.log(`No Changes for paragraph ${paragraphsReversed.length - i}`);
+            messages.push([ParagrahTexts(`No changes for part ${paragraphsReversed.length - i}`)])
         }
 
         metadata.messages = messages;
@@ -442,6 +559,26 @@ const transformToAst = (text: string) => unified()
         ]
     }).parse(text);
 
+const paragraphsWithPrefixs = (text: string) => transformToAst(text).children.reverse().reduce((p, c) => {
+    if (p.length == 0) {
+        // always add it if it has no entrys yet 
+        return [[c]];
+    } else if (c.type == 'paragraph') {
+        return [[c], ...p];
+    } else {
+        const [first, ...rest] = p;
+        return [[c, ...first], ...rest];
+    }
+}, [] as RootContent[][])
+    .map(x => {
+        const [first] = x;
+        const last = x[x.length - 1];
+        return {
+            text: transformFromAst({ type: 'root', children: x }),
+            start: first.position?.start,
+            end: last.position?.end,
+        }
+    });
 
 
 const formatMarkdown = (text: string) => unified()
