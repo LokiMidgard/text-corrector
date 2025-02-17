@@ -63,7 +63,8 @@
 				console.log('message', message);
 				currentState = { ...message, timestamp: DateTime.now() };
 				// set correction for newly started work
-				if (!lookup[message.path].hasCorrection) {
+
+				if (lookup[message.path] && !lookup[message.path].hasCorrection) {
 					lookup[message.path].hasCorrection = true;
 				}
 			}
@@ -82,7 +83,6 @@
 			let parent: undefined | string = undefined;
 			let current: undefined | string = undefined;
 			let currentIndex = path.indexOf('/');
-			console.log(currentIndex);
 			do {
 				parent = current ?? '';
 				current = path.substring(0, currentIndex);
@@ -96,7 +96,6 @@
 					lookup[parent!].children.push(newTreeElement);
 				}
 				currentIndex = path.indexOf('/', currentIndex + 1);
-				console.log(currentIndex);
 			} while (currentIndex > 0);
 
 			parent = current ?? '';

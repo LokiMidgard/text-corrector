@@ -14,16 +14,18 @@
 	import { DateTime, Duration } from 'luxon';
 	import type { UpdateData } from '$lib/trpc/router';
 	import { set } from 'zod';
+	import { monaco_init } from '$lib/client/monacoInit';
 
 	let { path, client }: { path: string; client: ReturnType<typeof trpc> } = $props();
 
 	let divEl: HTMLDivElement;
-	let editor: monaco.editor.IStandaloneCodeEditor|undefined=$state();
+	let editor: monaco.editor.IStandaloneCodeEditor | undefined = $state();
 	let Monaco: typeof import('monaco-editor') | undefined = $state();
 
 	let metadata: undefined | (UpdateData & { timestamp: DateTime }) = $state();
 
 	let connectedToBackend = $state(false);
+	let commandId: string | null= null;
 
 	// let client = $derived(trpc($page));
 
@@ -45,7 +47,7 @@
 
 	function updateText(selectedPath: string) {
 		client.getText.query(selectedPath).then((test) => {
-			if (Monaco&& editor) {
+			if (Monaco && editor) {
 				editor.setModel(Monaco.editor.createModel(test, 'markdown'));
 			}
 		});
@@ -101,9 +103,11 @@
 			}
 		});
 
-		import('monaco-editor').then((monaco) => {
+		monaco_init().then((monaco) => {
 			if (!divEl) return;
 			Monaco = monaco;
+
+			const lang = 'markdown';
 
 			editor = Monaco.editor.create(divEl, {
 				readOnly: true,
@@ -191,6 +195,7 @@
 			// 		}
 			// 	});
 
+			
 			window.onresize = function () {
 				editor.layout();
 			};

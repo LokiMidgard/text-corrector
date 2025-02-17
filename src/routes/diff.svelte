@@ -1,3 +1,7 @@
+<script lang="ts" module>
+	export type MetadataType = UpdateData & { timestamp: DateTime };
+</script>
+
 <script lang="ts">
 	import type monaco from 'monaco-editor';
 	import { onMount } from 'svelte';
@@ -14,6 +18,7 @@
 	import { DateTime, Duration } from 'luxon';
 	import type { UpdateData } from '$lib/trpc/router';
 	import { set } from 'zod';
+	import { monaco_init } from '$lib/client/monacoInit';
 
 	let { path, client }: { path: string; client: ReturnType<typeof trpc> } = $props();
 
@@ -21,7 +26,7 @@
 	let editor: monaco.editor.IStandaloneDiffEditor;
 	let Monaco: typeof import('monaco-editor') | undefined = $state();
 
-	let metadata: undefined | (UpdateData & { timestamp: DateTime }) = $state();
+	let metadata: undefined | MetadataType = $state();
 
 	let openDialog: undefined | 'draft' | 'commit' = $state();
 	let dialog_name = $state('');
@@ -43,13 +48,15 @@
 	let correctionModel: monaco.editor.ITextModel | undefined = $state();
 	function updateText(selectedPath: string) {
 		client.getCorrection.query(selectedPath).then(({ correction, original, metadata: meta }) => {
-			if (!originalModel || !correctionModel) return;
+			if (!originalModel || !correctionModel || !Monaco) return;
 			originalModel.setValue(original);
 			correctionModel.setValue(correction);
+
 			editor
 				.getModifiedEditor()
 				.updateOptions({ readOnly: meta.paragraph.value != meta.paragraph.of });
 			metadata = meta;
+			(correctionModel as any).metadata = metadata;
 		});
 		console.log('selectedPath', selectedPath);
 	}
@@ -101,26 +108,60 @@
 			}
 		});
 
-		import('monaco-editor').then((monaco) => {
+		monaco_init().then((monaco) => {
 			if (!divEl) return;
 			Monaco = monaco;
 
+			const lang = 'markdown';
+
 			editor = Monaco.editor.createDiffEditor(divEl, {
-				automaticLayout: true
+				automaticLayout: true,
 				// value: ['function x() {', '\tconsole.log("Hello world!");', '}'].join('\n'),
 				// language: 'javascript'
 				// automaticLayout: true // <<== the important part
+				diffCodeLens: true
 			});
 
-			originalModel = Monaco.editor.createModel('', 'markdown');
+			// if (commandId) {
+			// 	const code_lens = Monaco.languages.registerCodeLensProvider(lang, {
+			// 		provideCodeLenses: function (model, token) {
+			// 			console.log('provideCodeLenses', model, token);
+			// 			return {
+			// 				lenses: [
+			// 					{
+			// 						range: {
+			// 							startLineNumber: 3,
+			// 							startColumn: 1,
+			// 							endLineNumber: 4,
+			// 							endColumn: 1
+			// 						},
+			// 						id: 'First Line',
+			// 						command: {
+			// 							id: commandId,
+			// 							title: 'First Line',
+			// 							arguments: []
+			// 						}
+			// 					}
+			// 				],
+			// 				dispose: () => {}
+			// 			};
+			// 		},
+			// 		resolveCodeLens: function (model, codeLens, token) {
+			// 			return codeLens;
+			// 		}
+			// 	});
+			// 	console.log('code_lens', code_lens);
+			// }
+			originalModel = Monaco.editor.createModel('', lang);
 			// make readonly
 			editor.getOriginalEditor().updateOptions({ readOnly: true });
-			correctionModel = Monaco.editor.createModel('', 'markdown');
+			correctionModel = Monaco.editor.createModel('', lang);
 
 			editor.setModel({
 				original: originalModel,
 				modified: correctionModel
 			});
+
 			window.onresize = function () {
 				editor.layout();
 			};

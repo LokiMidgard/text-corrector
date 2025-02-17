@@ -64,7 +64,7 @@ export async function updateRepo(githubApiToken: string, repo: string) {
 
 
 
-        if (syncfs.existsSync(dir)) {
+        if (syncfs.existsSync(dir) && await git.findRoot({ fs, filepath: dir }) == dir) {
             await git.pull({
                 fs,
                 http,
@@ -201,7 +201,7 @@ export type CorrectionMetadata = {
     paragraph: { value: number, of: number | undefined };
     messages: Array<BlockContent | DefinitionContent>[];
     time_in_ms: number;
-    paragraphInfo: Record<number, CorrectionResult>
+    paragraphInfo: Record<number, CorrectionResult & { lines: { start: number, end: number } }>;
 };
 
 export async function correctText(path: string, corrected: string, metadata: CorrectionMetadata | null, commitData?: { message?: string } & Omit<git.CommitObject, 'message' | 'parent' | 'tree'>) {
@@ -224,7 +224,7 @@ export async function correctText(path: string, corrected: string, metadata: Cor
     const currentBlob = await git.readBlob({ fs, dir, filepath: path, oid: currentCommit });
     const metadataBlobOid = await git.writeBlob({
         fs, dir,
-        blob: new TextEncoder().encode(JSON.stringify(metadata)),
+        blob: new TextEncoder().encode(JSON.stringify(metadata, undefined, 2)),
     });
     const correctionBlobOid = await git.writeBlob({
         fs, dir,
@@ -297,7 +297,8 @@ export async function correctText(path: string, corrected: string, metadata: Cor
 
 
 export async function listFiles(branch: string = 'HEAD') {
-    const files = await git.listFiles({ fs, dir, ref: branch });
+    const ref = await git.resolveRef({ fs, dir, ref: branch });
+    const files = await git.listFiles({ fs, dir, ref });
     const hasSpellcheck = await Promise.all(files.toSorted((a, b) => a.localeCompare(b)).map(async (file) => {
         return { hasCorrection: await hasCorrection(file), path: file };
     }));

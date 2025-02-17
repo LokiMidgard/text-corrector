@@ -62,9 +62,9 @@ const envParser = z.object({
 });
 export type Env = z.infer<typeof envParser>;
 
-// const ca = systemCertsSync();
-const ca = undefined;
-windowsRootCerts.useWindowsCerts();
+const ca = systemCertsSync();
+// const ca = undefined;
+// windowsRootCerts.useWindowsCerts();
 
 
 console.log()
@@ -115,7 +115,7 @@ const noTimeoutFetch = (input: string | URL | globalThis.Request, init?: Request
         ...someInit,
         keepalive: true,
         dispatcher,
-        agent: fetchAgent
+        agent: fetchAgent,
     })
 }
 
@@ -197,7 +197,10 @@ async function wake() {
     console.log('wait for server to be healthy');
     const isHealthy = async () => {
         try {
-            const httpResponse = await fetch(`${protocol}://${host}:${port}/api/version`, { dispatcher });
+            const httpResponse = await fetch(`${protocol}://${host}:${port}/api/version`, { 
+                agent: fetchAgent,
+                dispatcher,
+             });
             console.log(`call ${protocol}://${host}:${port}/api/version`);
             if (!httpResponse.ok) {
                 console.log(`${protocol}://${host}:${port}/api/version failed ${httpResponse.status}`);
@@ -284,7 +287,12 @@ export async function checkRepo(): Promise<never> {
             }
             if (!workDone) {
                 console.log('Nothing to do, shutting down remote');
-                fetch(`${protocol}://${host}/poweroff`, { method: 'POST' });
+                await fetch(`${protocol}://${host}/poweroff`, {
+                    method: 'POST',
+                    agent: fetchAgent,
+                    dispatcher,
+
+                });
             }
 
             // delay for 30 seconds
@@ -388,10 +396,10 @@ Für ein Handwerkere war en jedenfalls geschickt.
     messages.push(...(metadata.messages ?? []));
 
     // need to get ast from original so the paragraph count is correct
-    
+
     const paragraphsReversed = await paragraphsWithPrefixs(original).reverse();
 
-    
+
 
     if (paragraphsReversed.length !== metadata.paragraph.of) {
         metadata.paragraph.of = paragraphsReversed.length;
@@ -451,7 +459,8 @@ Für ein Handwerkere war en jedenfalls geschickt.
             // console.log( formatMarkdown(corrected));
 
             const { data: correction, success, error } = CorrectionResultParser.safeParse(JSON.parse(correctionJsonText));
-
+            
+            
 
             if (!success) {
                 // probably not the result we want
@@ -486,14 +495,53 @@ Für ein Handwerkere war en jedenfalls geschickt.
                 continue;
             }
 
+            correction.corrected = formatMarkdown(correction.corrected);
+
             const start_of_text = element.start!.offset!;
             const end_of_text = element.end!.offset!;
+
+
+            const start_line_of_removed_text = element.start!.line!;
+            const end_line_of_removed_text = element.end!.line!;
+
+            const number_of_lines_removed = end_line_of_removed_text - start_line_of_removed_text + 1;
+            const number_of_lines_added = correction.corrected.split('\n').length - 1;
+
+            const line_delta = number_of_lines_added - number_of_lines_removed;
+
+
 
             const newStory = story.substring(0, start_of_text)
                 + formatMarkdown(correction.corrected) + (end_of_text < story.length ? (
                     story.substring(end_of_text + 1)) : ''
                 );
-            metadata.paragraphInfo[paragraphsReversed.length - i - 1] = correction;
+
+            const correction_metadata_with_line_count = {
+                ...correction,
+                lines: {
+                    start: start_line_of_removed_text,
+                    end: start_line_of_removed_text + number_of_lines_added,
+                }
+
+            };
+
+            const current_index = paragraphsReversed.length - i - 1;
+            metadata.paragraphInfo[current_index] = correction_metadata_with_line_count;
+
+            // update the metadata of previous added paragarphs that follow this so the line numbers are correct
+            for (let j = current_index + 1; j < paragraphsReversed.length; j++) {
+                const info = metadata.paragraphInfo[j];
+                if (info) {
+                    metadata.paragraphInfo[j] = {
+                        ...info,
+                        lines: {
+                            start: info.lines.start + line_delta,
+                            end: info.lines.end + line_delta,
+                        }
+                    }
+                }
+            }
+
             metadata.paragraph.value = i + 1
             await git.correctText(path, newStory, metadata);
             changes = story !== newStory
