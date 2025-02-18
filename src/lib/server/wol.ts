@@ -26,6 +26,9 @@ import * as windowsRootCerts from 'node-windows-root-certs-napi';
 import { systemCertsSync } from 'system-ca';
 import { zodToJsonSchema } from "zod-to-json-schema";
 
+import os from 'os';
+
+
 type CorrectionInput = {
     context: {
         storyContext: string,
@@ -62,10 +65,13 @@ const envParser = z.object({
 });
 export type Env = z.infer<typeof envParser>;
 
-const ca = systemCertsSync();
+const ca = os.platform() != "win32"
+    ? systemCertsSync()
+    : undefined;
 // const ca = undefined;
-// windowsRootCerts.useWindowsCerts();
-
+if (os.platform() == "win32") {
+    windowsRootCerts.useWindowsCerts();
+}
 
 console.log()
 const env = envParser.parse(svelteEnve);
@@ -197,10 +203,10 @@ async function wake() {
     console.log('wait for server to be healthy');
     const isHealthy = async () => {
         try {
-            const httpResponse = await fetch(`${protocol}://${host}:${port}/api/version`, { 
+            const httpResponse = await fetch(`${protocol}://${host}:${port}/api/version`, {
                 agent: fetchAgent,
                 dispatcher,
-             });
+            });
             console.log(`call ${protocol}://${host}:${port}/api/version`);
             if (!httpResponse.ok) {
                 console.log(`${protocol}://${host}:${port}/api/version failed ${httpResponse.status}`);
@@ -459,8 +465,8 @@ Für ein Handwerkere war en jedenfalls geschickt.
             // console.log( formatMarkdown(corrected));
 
             const { data: correction, success, error } = CorrectionResultParser.safeParse(JSON.parse(correctionJsonText));
-            
-            
+
+
 
             if (!success) {
                 // probably not the result we want
