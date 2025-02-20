@@ -1,5 +1,20 @@
 <script lang="ts" module>
+	export const kinds = ['corrected', 'oiginal', 'alternative', 'edited'] as const;
+	export type ParagraphKind = (typeof kinds)[number];
 	export type MetadataType = UpdateData & { timestamp: DateTime };
+	export type CorrecedModel = monaco.editor.ITextModel & {
+		metadata: MetadataType;
+		getIndexOfDecorationKey(this: CorrecedModel, key: string): number | undefined;
+		getCurrentKind(this: CorrecedModel, index: number): ParagraphKind;
+		hasKind(this: CorrecedModel, index: number, kind: ParagraphKind): boolean;
+		setKind(this: CorrecedModel, index: number, kind: ParagraphKind): void;
+		getIndexOfPosition(this: CorrecedModel, type: 'line', line: number): number;
+		getIndexOfPosition(this: CorrecedModel, type: 'offset', offset: number): number;
+		handleTextEdits(this: CorrecedModel, edits: monaco.editor.IModelContentChange): void;
+	};
+	export function isCorrectedModel(obj: unknown): obj is CorrecedModel {
+		return typeof obj == 'object' && obj != undefined && 'getIndexOfDecorationKey' in obj;
+	}
 </script>
 
 <script lang="ts">
@@ -11,13 +26,13 @@
 	import htmlWorker from 'monaco-editor/esm/vs/language/html/html.worker?worker';
 	import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker';
 
-	import { renderMarkdown } from '$lib';
+	import { formatMarkdown, renderMarkdown } from '$lib';
 	import { page } from '$app/stores';
 	import type { CorrectionMetadata, Review } from '$lib/server/git';
 	import { trpc } from '$lib/trpc/client';
 	import { DateTime, Duration } from 'luxon';
 	import type { UpdateData } from '$lib/trpc/router';
-	import { set } from 'zod';
+	import { number, object, set, unknown } from 'zod';
 	import { monaco_init } from '$lib/client/monacoInit';
 
 	let { path, client }: { path: string; client: ReturnType<typeof trpc> } = $props();
@@ -45,18 +60,223 @@
 	}, 500);
 
 	let originalModel: monaco.editor.ITextModel | undefined = $state();
-	let correctionModel: monaco.editor.ITextModel | undefined = $state();
+	let correctionModel: CorrecedModel | undefined = $state();
 	function updateText(selectedPath: string) {
 		client.getCorrection.query(selectedPath).then(({ correction, original, metadata: meta }) => {
 			if (!originalModel || !correctionModel || !Monaco) return;
 			originalModel.setValue(original);
 			correctionModel.setValue(correction);
 
+			const entries = Object.entries(meta.paragraphInfo);
+
+			const keys = correctionModel.deltaDecorations(
+				[],
+				entries.map(([key, value]) => {
+					return {
+						options: {
+							blockClassName: 'corrected' satisfies ParagraphKind
+						},
+						range: {
+							endColumn: 1,
+							startColumn: 1,
+							endLineNumber: value.lines.end,
+							startLineNumber: value.lines.start
+						}
+					} satisfies monaco.editor.IModelDeltaDecoration;
+				})
+			);
+
+			const indexLookUp = {} as Record<number, string>;
+			const keyLookup = {} as Record<string, number>;
+			let internalUpdate = false;
+			for (let i = 0; i < keys.length; i++) {
+				const key = keys[i];
+				const index = parseInt(entries[i][0]);
+				indexLookUp[index] = key;
+				keyLookup[key] = index;
+			}
+
 			editor
 				.getModifiedEditor()
 				.updateOptions({ readOnly: meta.paragraph.value != meta.paragraph.of });
-			metadata = meta;
-			(correctionModel as any).metadata = metadata;
+			metadata = meta as MetadataType;
+
+			correctionModel.metadata = metadata;
+			correctionModel.getIndexOfDecorationKey = function (key) {
+				return keyLookup[key];
+			};
+			correctionModel.getIndexOfDecorationKey.bind(correctionModel);
+			correctionModel.getCurrentKind = (index) => {
+				const change = indexLookUp[index];
+				if (change == undefined) {
+					throw new Error(`No Changes for ${index}`);
+				}
+				const blockClassName = correctionModel?.getDecorationOptions(change)?.blockClassName;
+				if (blockClassName == undefined) {
+					throw new Error(`Unable to get class of ${change} for ${index}`);
+				}
+				return blockClassName as ParagraphKind;
+			};
+			correctionModel.getCurrentKind.bind(correctionModel);
+			correctionModel.handleTextEdits = function (change) {
+				if (internalUpdate) {
+					return;
+				}
+				const decorations = this.getDecorationsInRange(change.range).filter(
+					(x) => this.getIndexOfDecorationKey(x.id) != undefined
+				);
+
+				decorations.forEach((decoration) => {
+					const index = this.getIndexOfDecorationKey(decoration.id);
+					if (index == undefined) {
+						throw new Error('Unable to get index');
+					}
+					this.metadata.paragraphInfo[index].lines.start = decoration.range.startLineNumber;
+					this.metadata.paragraphInfo[index].lines.end = decoration.range.endLineNumber;
+
+					// get text in decoration
+					const text = this.getValueInRange(decoration.range);
+					this.metadata.paragraphInfo[index].edited = text;
+					const newKey = this.deltaDecorations(
+						[decoration.id],
+						[
+							{
+								options: {
+									blockClassName: 'edited'
+								},
+								range: decoration.range
+							}
+						]
+					);
+					if (newKey.length != 1) {
+						throw new Error(`Expected 1 key got ${newKey.length}`);
+					}
+					delete keyLookup[decoration.id];
+					indexLookUp[index] = newKey[0];
+					keyLookup[newKey[0]] = index;
+				});
+			};
+			correctionModel.handleTextEdits.bind(correctionModel);
+			correctionModel.hasKind = (index, kind) => {
+				const info = metadata?.paragraphInfo[index];
+				if (info == undefined) {
+					throw new Error(`Unable to get metadata for ${index}`);
+				}
+				if (kind == 'alternative') {
+					return (
+						info.alternative != undefined &&
+						info.alternative != info.corrected &&
+						info.alternative != info.original
+					);
+				} else if (kind == 'corrected') {
+					return info.corrected != undefined && info.corrected != info.original;
+				} else if (kind == 'edited') {
+					return info.edited != undefined;
+				} else if (kind == 'oiginal') {
+					return true;
+				} else {
+					throw new Error(`Unknown kind ${kind}`);
+				}
+			};
+			correctionModel.hasKind.bind(correctionModel);
+			correctionModel.setKind = function (index, kind) {
+				internalUpdate = true;
+				try {
+					const info = this.metadata.paragraphInfo[index];
+					if (info == undefined) {
+						throw new Error(`could not find data for ${index}`);
+					}
+					if (!this.hasKind(index, kind)) {
+						throw new Error(`Kind ${kind} not available for ${index}`);
+					}
+					// const currentKind = this.getCurrentKind(index);
+					// const currentText =
+					// 	currentKind == 'alternative'
+					// 		? info.alternative
+					// 		: currentKind == 'corrected'
+					// 			? info.corrected
+					// 			: currentKind == 'oiginal'
+					// 				? info.original
+					// 				: currentKind == 'edited'
+					// 					? info.edited
+					// 					: undefined;
+					// if (currentText == undefined) {
+					// 	throw new Error(`Cant find text for ${currentKind}`);
+					// }
+					const newTextUnformated =
+						kind == 'alternative'
+							? info.alternative
+							: kind == 'corrected'
+								? info.corrected
+								: kind == 'oiginal'
+									? info.original
+									: kind == 'edited'
+										? info.edited
+										: undefined;
+					if (newTextUnformated == undefined) {
+						throw new Error(`Cant find text for ${kind}`);
+					}
+					const newText = formatMarkdown(newTextUnformated);
+
+					const newTextLines = newText.split('\n').length - 1;
+					const oldTextLines = info.lines.end - info.lines.start;
+					const delta = newTextLines - oldTextLines;
+
+					this.applyEdits([
+						{
+							range: {
+								startColumn: 1,
+								endColumn: 1,
+								startLineNumber: info.lines.start,
+								endLineNumber: info.lines.end
+							},
+							text: newText
+						}
+					]);
+					info.lines.end += delta;
+					Object.keys(this.metadata.paragraphInfo)
+						.map((x) => parseInt(x))
+						.filter((x) => x > index)
+						.forEach((i) => {
+							this.metadata.paragraphInfo[i].lines.end + delta;
+							this.metadata.paragraphInfo[i].lines.start + delta;
+						});
+
+					const key = indexLookUp[index];
+					console.log(`new lines ${info.lines.start} ${info.lines.end}`, info.lines);
+					const newKey = this.deltaDecorations(
+						[key],
+						[
+							{
+								options: {
+									blockClassName: kind
+								},
+								range: {
+									endColumn: 1,
+									startColumn: 1,
+									endLineNumber: info.lines.end,
+									startLineNumber: info.lines.start
+								}
+							}
+						]
+					);
+					this.getAllDecorations()
+						.filter((x) => x.id == newKey[0])
+						.forEach((x) => {
+							console.log('new decoration range', x.range);
+						});
+					if (newKey.length != 1) {
+						throw new Error(`Expected 1 key got ${newKey.length}`);
+					}
+					console.log(`old key ${key} newKey ${newKey[0]}`);
+					delete keyLookup[key];
+					indexLookUp[index] = newKey[0];
+					keyLookup[newKey[0]] = index;
+				} finally {
+					internalUpdate = false;
+				}
+			};
+			correctionModel.setKind.bind(correctionModel);
 		});
 		console.log('selectedPath', selectedPath);
 	}
@@ -122,40 +342,19 @@
 				diffCodeLens: true
 			});
 
-			// if (commandId) {
-			// 	const code_lens = Monaco.languages.registerCodeLensProvider(lang, {
-			// 		provideCodeLenses: function (model, token) {
-			// 			console.log('provideCodeLenses', model, token);
-			// 			return {
-			// 				lenses: [
-			// 					{
-			// 						range: {
-			// 							startLineNumber: 3,
-			// 							startColumn: 1,
-			// 							endLineNumber: 4,
-			// 							endColumn: 1
-			// 						},
-			// 						id: 'First Line',
-			// 						command: {
-			// 							id: commandId,
-			// 							title: 'First Line',
-			// 							arguments: []
-			// 						}
-			// 					}
-			// 				],
-			// 				dispose: () => {}
-			// 			};
-			// 		},
-			// 		resolveCodeLens: function (model, codeLens, token) {
-			// 			return codeLens;
-			// 		}
-			// 	});
-			// 	console.log('code_lens', code_lens);
-			// }
 			originalModel = Monaco.editor.createModel('', lang);
 			// make readonly
 			editor.getOriginalEditor().updateOptions({ readOnly: true });
 			correctionModel = Monaco.editor.createModel('', lang);
+			correctionModel?.onDidChangeContent((e) => {
+				e.changes.forEach((change) => {
+					const model = correctionModel;
+					if (!isCorrectedModel(model)) {
+						return;
+					}
+					model.handleTextEdits(change);
+				});
+			});
 
 			editor.setModel({
 				original: originalModel,

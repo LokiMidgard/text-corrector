@@ -1,15 +1,9 @@
 
-import { Resolver } from 'dns';
 import ping from 'ping';
 import wol from 'wake_on_lan';
 import fs from 'fs';
 import { Ollama } from 'ollama';
 
-import remarkStringify from 'remark-stringify';
-import remarkParse from 'remark-parse';
-import remarkBreakLine from 'remark-break-line';
-import { unified } from 'unified';
-import remarkWiki from 'remark-wiki-link';
 import { Agent } from 'undici'
 
 import https from 'https';
@@ -27,6 +21,7 @@ import { systemCertsSync } from 'system-ca';
 import { zodToJsonSchema } from "zod-to-json-schema";
 
 import os from 'os';
+import { formatMarkdown, transformFromAst, transformToAst } from '$lib';
 
 
 type CorrectionInput = {
@@ -49,7 +44,6 @@ const CorrectionResultParser = z.object({
 });
 
 export type CorrectionResult = z.infer<typeof CorrectionResultParser>;
-const resolver = new Resolver();
 
 const envParser = z.object({
     OLLAMA_HOST: z.string(),
@@ -502,6 +496,7 @@ Für ein Handwerkere war en jedenfalls geschickt.
             }
 
             correction.corrected = formatMarkdown(correction.corrected);
+            correction.alternative = formatMarkdown(correction.alternative);
 
             const start_of_text = element.start!.offset!;
             const end_of_text = element.end!.offset!;
@@ -515,7 +510,7 @@ Für ein Handwerkere war en jedenfalls geschickt.
 
             const line_delta = number_of_lines_added - number_of_lines_removed;
 
-
+            const old_text = story.substring(start_of_text, end_of_text + 1);
 
             const newStory = story.substring(0, start_of_text)
                 + formatMarkdown(correction.corrected) + (end_of_text < story.length ? (
@@ -527,9 +522,9 @@ Für ein Handwerkere war en jedenfalls geschickt.
                 lines: {
                     start: start_line_of_removed_text,
                     end: start_line_of_removed_text + number_of_lines_added,
-                }
-
-            };
+                },
+                original: old_text,
+            } satisfies git.CorrectionMetadata['paragraphInfo'][number];
 
             const current_index = paragraphsReversed.length - i - 1;
             metadata.paragraphInfo[current_index] = correction_metadata_with_line_count;
@@ -600,18 +595,6 @@ Für ein Handwerkere war en jedenfalls geschickt.
 
 
 
-// markdown helper
-const transformToAst = (text: string) => unified()
-    .use(remarkParse)
-    .use(remarkWiki, { hrefTemplate: (x: string) => x.toLocaleLowerCase() })
-    .use(remarkBreakLine, {
-        "removeLinebreaksAndMultipleSpaces": true,
-        "maxLineLength": 30,
-        "mergableElements": [
-            "emphasis",
-            "strong"
-        ]
-    }).parse(text);
 
 const paragraphsWithPrefixs = (text: string) => transformToAst(text).children.reverse().reduce((p, c) => {
     if (p.length == 0) {
@@ -633,34 +616,6 @@ const paragraphsWithPrefixs = (text: string) => transformToAst(text).children.re
             end: last.position?.end,
         }
     });
-
-
-const formatMarkdown = (text: string) => unified()
-    .use(remarkParse)
-    .use(remarkWiki, { hrefTemplate: (x: string) => x.toLocaleLowerCase() })
-    .use(remarkBreakLine, {
-        "removeLinebreaksAndMultipleSpaces": true,
-        "maxLineLength": 60,
-        "mergableElements": [
-            "emphasis",
-            "strong"
-        ]
-    })
-    .use(remarkStringify)
-    .processSync(text).value as string;
-
-export const transformFromAst = (ast: Root) => unified()
-    .use(remarkWiki, { hrefTemplate: (x: string) => x.toLocaleLowerCase() })
-    .use(remarkBreakLine, {
-        "removeLinebreaksAndMultipleSpaces": true,
-        "maxLineLength": 30,
-        "mergableElements": [
-            "emphasis",
-            "strong"
-        ]
-    }).use(remarkStringify)
-    .stringify(ast)
-    ;
 
 
 

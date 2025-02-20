@@ -3,9 +3,9 @@ import type { Context } from '$lib/trpc/context';
 import { initTRPC } from '@trpc/server';
 import { correctText, getCorrection, getCurrentCommitData,  getText, listFiles, setText, type CorrectionMetadata } from '../server/git';
 import { z } from 'zod';
-import { transformFromAst } from '../server/wol';
 import { observable } from '@trpc/server/observable';
 import EventEmitter from 'events';
+import { transformFromAst } from '$lib';
 
 export const t = initTRPC.context<Context>().create();
 

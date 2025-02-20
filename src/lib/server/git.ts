@@ -201,7 +201,7 @@ export type CorrectionMetadata = {
     paragraph: { value: number, of: number | undefined };
     messages: Array<BlockContent | DefinitionContent>[];
     time_in_ms: number;
-    paragraphInfo: Record<number, CorrectionResult & { lines: { start: number, end: number } }>;
+    paragraphInfo: Record<number, CorrectionResult & { lines: { start: number, end: number }, original: string, edited?: string}>;
 };
 
 export async function correctText(path: string, corrected: string, metadata: CorrectionMetadata | null, commitData?: { message?: string } & Omit<git.CommitObject, 'message' | 'parent' | 'tree'>) {

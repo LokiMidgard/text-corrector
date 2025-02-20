@@ -1,10 +1,9 @@
-@use '@picocss/pico/scss' with(
-    $theme-color: "purple",
+@use '@picocss/pico/scss' with ($theme-color: "purple",
     $parent-selector: "body>div>*>:not(.h-screen)",
 );
 
 
-.overlay{
+.overlay {
     font-family: "Droid Sans Mono", "monospace", monospace;
     font-weight: normal;
     font-size: 14px;
@@ -12,4 +11,58 @@
     font-variation-settings: normal;
     line-height: 19px;
     letter-spacing: 0px;
+    z-index: 10000000;
+    background-color: var(--vscode-editorWidget-background);
+    color: var(--vscode-editorWidget-foreground);
+    border-top: 4px solid var(--vscode-editorWidget-border);
+    border-bottom: 4px solid var(--vscode-editorWidget-border);
+    padding: 4px;
+    overflow: hidden;
+
+    &>div {
+        height: 100%;
+        margin-right: 1em;
+
+        overflow-x: auto;
+        padding-bottom: 1em;
+    }
+
+}
+
+
+.edited,
+.alternative,
+.corrected,
+.orignal {
+    display: grid;
+    position: relative;
+
+    &::after {
+        background-color: black;
+        content: "";
+        align-self: stretch;
+        justify-self: stretch;
+        opacity: 0.1;
+        font-size: 12px;
+        border-top: 3px solid lightcoral;
+        border-bottom: 3px solid lightcoral;
+        margin-bottom: 1.3em;
+        margin-top: 1.3em;
+    }
+
+    // border-top: 3px solid green;
+}
+
+.orignal::after {
+    background-color: wheat;
+}
+.corrected::after {
+    background-color: gold;
+}
+.edited::after {
+    background-color: blueviolet;
+}
+
+.alternative::after {
+    background-color: blue;
 }
