@@ -20,6 +20,32 @@
     display: grid;
     grid-template-rows: auto 1fr auto;
 
+    &>header {
+        padding-left: 1em;
+        border-bottom: 2px solid var(--vscode-inputValidation-infoBorder);
+        &>button {
+            &::before {
+                content: var(--vscode-icon-close-content);
+                font-family: var(--vscode-icon-close-font-family);
+            }
+            float: right;
+            cursor: pointer;
+            background: none;
+            border: none;
+            box-shadow: none;
+            color: var(--vscode-inputValidation-infoBorder);
+            &:hover{
+                color: var(--vscode-breadcrumb-background);
+                background-color: var(--vscode-inputValidation-infoBorder);
+            }
+            &:active{
+                color: var(--vscode-breadcrumb-background);
+                background-color: var(--vscode-editorLink-activeForeground);
+            }
+        }
+
+    }
+
     &>.text {
 
         height: 100%;
@@ -27,6 +53,7 @@
 
         overflow-x: auto;
         padding-bottom: 1em;
+        padding-left: 1em;
     }
 
     &>.grip {
