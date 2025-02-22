@@ -97,12 +97,16 @@ export async function monaco_init() {
             const overlayDom = document.createElement('div');
             overlayDom.id = 'overlayId';
             overlayDom.classList.add('overlay');
-            overlayDom.style.width = '100%';
+
+            const header = document.createElement('header');
+            overlayDom.appendChild(header);
+
             const button = document.createElement('button');
             button.innerHTML = 'Remove';
-            overlayDom.appendChild(button);
+            header.appendChild(button);
 
             const textHolder = document.createElement('div');
+            textHolder.classList.add('text')
 
             const goodPoints = document.createElement('div');
             goodPoints.classList.add('points');
@@ -120,9 +124,40 @@ export async function monaco_init() {
             renderMarkdown(paragraphInfo.badPoints).then((html) => {
                 badPoints.innerHTML = html;
             });
-
-
             overlayDom.appendChild(textHolder);
+
+            const bottomGrip = document.createElement('div');
+            bottomGrip.classList.add('grip');
+            overlayDom.appendChild(bottomGrip);
+
+
+
+
+            // textHolder.style.background = 'green';
+            textHolder.onwheel = (e) => {
+                // only stop propagation if the overlay is scrollable
+                // and is not at the end of the scroll
+                const scrollHeight = textHolder.scrollHeight;
+                const clientHeight = textHolder.getBoundingClientRect().height;
+                if (scrollHeight > textHolder.clientHeight) {
+                    const scrollUp = e.deltaY < 0;
+                    const scrollDown = e.deltaY > 0;
+                    const atTop = textHolder.scrollTop == 0;
+                    const atBottom = Math.round(textHolder.scrollTop + clientHeight) >= scrollHeight;
+                    if (scrollUp && atTop) {
+                        // do not stop propagation
+                        // console.log('at top');
+                    } else if (scrollDown && atBottom) {
+                        // do not stop propagation
+                        // console.log('at bottom');
+                    } else {
+                        // console.log('stop');
+                        e.stopPropagation();
+                    }
+                } else {
+                    // console.log('no scroll', { scrollHeight,realScrollHeight:textHolder.scrollHeight, clientHeight: textHolder.clientHeight });
+                }
+            }
 
             console.log("height", overlayDom.clientHeight);
 
@@ -142,20 +177,75 @@ export async function monaco_init() {
             const marginDomNode = document.createElement('div');
             marginDomNode.id = 'zoneMarginId';
             let zoneId: string | undefined = undefined;
+            let top = 0;
+            let height = 0;
+            const getZone = (lines: number) => ({
+                afterLineNumber: paragraphInfo.lines.start - 1,
+                heightInLines: Math.max(3, lines),
+                domNode: zoneNode,
+                marginDomNode: marginDomNode,
+                onDomNodeTop: (top_value) => {
+                    top = top_value;
+                    overlayDom.style.top = top + 'px';
+                },
+                onComputedHeight: (height_value) => {
+                    height = height_value;
+                    overlayDom.style.height = height + 'px';
+                }
+            } satisfies editor.IViewZone);
+            let currentLines = 10;
             editor.changeViewZones(function (changeAccessor) {
-                zoneId = changeAccessor.addZone({
-                    afterLineNumber: paragraphInfo.lines.start - 1,
-                    heightInLines: 10,
-                    domNode: zoneNode,
-                    marginDomNode: marginDomNode,
-                    onDomNodeTop: (top) => {
-                        overlayDom.style.top = top + 'px';
-                    },
-                    onComputedHeight: (height) => {
-                        overlayDom.style.height = height + 'px';
-                    }
-                });
+                zoneId = changeAccessor.addZone(getZone(currentLines));
             });
+
+            // resize zone if the user pulls on the lower margin
+            let isResizing = false;
+            bottomGrip.onmousedown = (e) => {
+                // if (e.target === bottomGrip) {
+                isResizing = true;
+                bottomGrip.classList.add('resize');
+                document.body.style.cursor = 'ns-resize';
+                document.body.style.userSelect = 'none';
+                // }
+            }
+
+            document.onmousemove = (e) => {
+                if (isResizing) {
+                    e.preventDefault();
+                    e.stopPropagation();
+
+                    const bototmOfOverlay = overlayDom.getBoundingClientRect().bottom;
+                    const distanceToEdge = e.clientY - bototmOfOverlay;
+                    const minDiff = 40;
+                    if (distanceToEdge > minDiff) {
+                        currentLines++;
+                        editor.changeViewZones(function (changeAccessor) {
+                            if (zoneId == undefined) {
+                                return;
+                            }
+                            changeAccessor.removeZone(zoneId);
+                            zoneId = changeAccessor.addZone(getZone(currentLines))
+                        });
+                    } else if (distanceToEdge < -minDiff) {
+                        currentLines--;
+                        editor.changeViewZones(function (changeAccessor) {
+                            if (zoneId == undefined) {
+                                return;
+                            }
+                            changeAccessor.removeZone(zoneId);
+                            zoneId = changeAccessor.addZone(getZone(currentLines))
+                        });
+                    }
+                }
+            }
+            document.onmouseup = () => {
+                isResizing = false;
+                bottomGrip.classList.remove('resize');
+                document.body.style.cursor = '';
+                document.body.style.userSelect = '';
+
+            }
+
 
             // remove Zone if remove button is pressed
             button.onclick = () => {

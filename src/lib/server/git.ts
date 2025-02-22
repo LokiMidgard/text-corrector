@@ -87,7 +87,6 @@ export async function updateRepo(githubApiToken: string, repo: string) {
                 console.error('Failed to clone repository:', error);
             }
         }
-
         const remoteRefs = await git.listServerRefs({ http, url: clone_url.href, prefix: 'refs/spellcheck/' });
         for (const ref of remoteRefs) {
             console.log('fetching', ref.ref);
