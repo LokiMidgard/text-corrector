@@ -8,7 +8,7 @@ import { Agent } from 'undici'
 
 import https from 'https';
 
-import * as svelteEnve from '$env/static/private'
+import * as svelteEnve from '$env/dynamic/private'
 
 import { z } from 'zod';
 
