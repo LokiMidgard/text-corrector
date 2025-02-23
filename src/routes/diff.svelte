@@ -28,12 +28,10 @@
 	import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker';
 
 	import { formatMarkdown, renderMarkdown } from '$lib';
-	import { page } from '$app/stores';
 	import type { CorrectionMetadata, Review } from '$lib/server/git';
 	import { trpc } from '$lib/trpc/client';
 	import { DateTime, Duration } from 'luxon';
 	import type { UpdateData } from '$lib/trpc/router';
-	import { number, object, set, unknown } from 'zod';
 	import { monaco_init } from '$lib/client/monacoInit';
 
 	let { path, client }: { path: string; client: ReturnType<typeof trpc> } = $props();
