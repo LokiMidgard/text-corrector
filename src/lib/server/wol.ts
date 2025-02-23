@@ -8,7 +8,7 @@ import { Agent } from 'undici'
 
 import https from 'https';
 
-import * as svelteEnve from '$env/dynamic/private'
+// import * as svelteEnve from '$env/dynamic/private'
 
 import { z } from 'zod';
 
@@ -68,7 +68,7 @@ if (os.platform() == "win32") {
 }
 
 console.log()
-const env = envParser.parse(svelteEnve);
+const env = envParser.parse(process.env);
 
 // check if all required systems files are present
 const requiredFiles = [
