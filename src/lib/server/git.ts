@@ -197,23 +197,30 @@ export async function setText(path: string, newText: string, commitData: Omit<gi
 }
 
 export type CorrectionMetadata = {
-    paragraph: { value: number, of: number | undefined };
     messages: Array<BlockContent | DefinitionContent>[];
     time_in_ms: number;
-    paragraphInfo: Record<number, CorrectionResult & { lines: { start: number, end: number }, original: string, edited?: string}>;
+    paragraphInfo: {
+        text: {
+            original: string,
+            alternative?: string,
+            correction?: string,
+            edited?: string,
+        },
+        selectedText?: 'original' | 'alternative' | 'correction' | 'edited',
+        judgment?: {
+            goodPoints: string,
+            badPoints: string,
+            score: number,
+        },
+        involvedCharacters?: string[],
+    }[];
 };
 
-export async function correctText(path: string, corrected: string, metadata: CorrectionMetadata | null, commitData?: { message?: string } & Omit<git.CommitObject, 'message' | 'parent' | 'tree'>) {
+export async function correctText(path: string, metadata: CorrectionMetadata, commitData?: { message?: string } & Omit<git.CommitObject, 'message' | 'parent' | 'tree'>) {
 
-    if (metadata == null) {
-        metadata = (await getCorrection(path)).metadata;
-        if (metadata.paragraph.of == undefined) {
-            throw new Error(`Can't modify text before correction is started and finished for path ${path}`)
-        }
-        if (metadata.paragraph.value < metadata.paragraph.of) {
-            throw new Error(`Can't modify text before correction is finised (${metadata.paragraph.value} ${metadata.paragraph.of}) for path ${path}`)
-        }
-    }
+    const corrected = metadata.paragraphInfo
+        .map((paragraph) => paragraph.text[paragraph.selectedText!] ?? paragraph.text.original)
+        .join('\n');
 
     const head = await git.resolveRef({ fs, dir, ref: 'HEAD' });
     const currentCommit = await git.resolveRef({ fs, dir, ref: head });
@@ -265,9 +272,11 @@ export async function correctText(path: string, corrected: string, metadata: Cor
         parent = [oid];
     }
 
+    const numberOfParagraphs = metadata.paragraphInfo.length;
+    const numberOfCorrectedParagraphs = metadata.paragraphInfo.filter(x => x.text.correction).length;
 
     const actualCommitData = {
-        message: `Correct ${path} ${metadata.paragraph.value}/${metadata.paragraph.of} ${metadata.time_in_ms}`,
+        message: `Correct ${path} ${numberOfCorrectedParagraphs}/${numberOfParagraphs} ${metadata.time_in_ms}`,
         ...(commitData ?? {
             author: bot(),
             committer: bot(),
@@ -340,11 +349,9 @@ export async function getCorrection(path: string) {
             return null;
     };
 
-    const correction = decode(await git.readBlob({ fs, dir, oid: correctionOid, filepath: 'correction' }));
-    const original = decode(await git.readBlob({ fs, dir, oid: correctionOid, filepath: 'original' }));
     const metadataString = decode(await git.readBlob({ fs, dir, oid: correctionOid, filepath: 'metadata' }));
-    if (original && correction && metadataString)
-        return { correction, original, metadata: JSON.parse(metadataString) as CorrectionMetadata };
+    if (metadataString)
+        return JSON.parse(metadataString) as CorrectionMetadata;
     else
         throw new Error('Failed to get orignal or correction');
 }

@@ -23,22 +23,26 @@
     &>header {
         padding-left: 1em;
         border-bottom: 2px solid var(--vscode-inputValidation-infoBorder);
+
         &>button {
             &::before {
                 content: var(--vscode-icon-close-content);
                 font-family: var(--vscode-icon-close-font-family);
             }
+
             float: right;
             cursor: pointer;
             background: none;
             border: none;
             box-shadow: none;
             color: var(--vscode-inputValidation-infoBorder);
-            &:hover{
+
+            &:hover {
                 color: var(--vscode-breadcrumb-background);
                 background-color: var(--vscode-inputValidation-infoBorder);
             }
-            &:active{
+
+            &:active {
                 color: var(--vscode-breadcrumb-background);
                 background-color: var(--vscode-editorLink-activeForeground);
             }
@@ -72,8 +76,8 @@
 
 .edited,
 .alternative,
-.corrected,
-.orignal {
+.correction,
+.original {
     display: grid;
     position: relative;
 
@@ -82,31 +86,35 @@
         content: "";
         align-self: stretch;
         justify-self: stretch;
-        opacity: 0.1;
+        // opacity: 0.1;
         font-size: 12px;
         border-top: 3px solid lightcoral;
         border-bottom: 3px solid lightcoral;
-        margin-bottom: 1.3em;
+        margin-bottom: 4.3em;
         margin-top: 1.3em;
+        background-color: rgba(var(--color), 0.2);
+        border-color: rgb(var(--color));
+
     }
 
     // border-top: 3px solid green;
 }
 
-.orignal::after {
-    background-color: wheat;
+.original::after {
+    --color: 245, 222, 179;
+
 }
 
-.corrected::after {
-    background-color: gold;
+.correction::after {
+    --color: 255, 215, 0;
 }
 
 .edited::after {
-    background-color: blueviolet;
+    --color: 138, 43, 226;
 }
 
 .alternative::after {
-    background-color: blue;
+    --color: 0, 0, 255;
 }
 
 

@@ -13,7 +13,7 @@ export async function monaco_init() {
         const Monaco = await MonacoPromise;
 
         Monaco.languages.registerCodeLensProvider('markdown', {
-            provideCodeLenses: function (model, token) {
+            provideCodeLenses: function (model) {
                 if (!isCorrectedModel(model)) {
                     return {
                         lenses: [],
@@ -42,11 +42,14 @@ export async function monaco_init() {
                             range: value.range,
                             command: {
                                 id: `review`,
-                                title: `Judgement ${info.judgment} (${currentKind})`,
+                                title: info.judgment != undefined
+                                    ? `Judgement ${info.judgment.score} (${currentKind})`
+                                    : 'Review not yet done',
                                 tooltip: 'Displays a message',
                                 arguments: [value, model]
                             }
-                        }, ...kinds.filter(x => model.hasKind(dataIndex, x) && x != model.getCurrentKind(dataIndex)).map(kind => ({
+                        },
+                        ...kinds.filter(x => model.hasKind(dataIndex, x) && x != model.getCurrentKind(dataIndex)).map(kind => ({
                             range: value.range,
                             command: {
                                 id: `switchKind`,
@@ -81,6 +84,9 @@ export async function monaco_init() {
                 throw new Error('Faild to get data');
             }
             const paragraphInfo = model.metadata.paragraphInfo[index];
+            if (paragraphInfo.judgment == undefined) {
+                return;
+            }
 
             const editor = Monaco.editor.getEditors().filter(x => x.getModel() === model)[0]
                 ?? Monaco.editor.getDiffEditors().filter(x => x.getModel()?.modified === model)[0];
@@ -99,7 +105,7 @@ export async function monaco_init() {
             overlayDom.classList.add('overlay');
 
             const header = document.createElement('header');
-            header.innerText = `Judgement ${paragraphInfo.judgment}`
+            header.innerText = `Judgement ${paragraphInfo.judgment?.score}`
             overlayDom.appendChild(header);
 
             const button = document.createElement('button');
@@ -114,7 +120,7 @@ export async function monaco_init() {
             goodPoints.classList.add('good');
             goodPoints.innerText = 'Good points Loading…';
             textHolder.appendChild(goodPoints);
-            renderMarkdown(paragraphInfo.goodPoints).then((html) => {
+            renderMarkdown(paragraphInfo.judgment!.goodPoints).then((html) => {
                 goodPoints.innerHTML = html;
             });
             const badPoints = document.createElement('div');
@@ -122,7 +128,7 @@ export async function monaco_init() {
             badPoints.classList.add('bad');
             badPoints.innerText = 'Bad points Loading…';
             textHolder.appendChild(badPoints);
-            renderMarkdown(paragraphInfo.badPoints).then((html) => {
+            renderMarkdown(paragraphInfo.judgment!.badPoints).then((html) => {
                 badPoints.innerHTML = html;
             });
             overlayDom.appendChild(textHolder);
@@ -174,6 +180,8 @@ export async function monaco_init() {
             const zoneNode = document.createElement('div');
             zoneNode.id = 'zoneId';
 
+            const range = model.getDecorationRange(decoration.id);
+
             // Can be used to fill the margin
             const marginDomNode = document.createElement('div');
             marginDomNode.id = 'zoneMarginId';
@@ -181,7 +189,7 @@ export async function monaco_init() {
             let top = 0;
             let height = 0;
             const getZone = (lines: number) => ({
-                afterLineNumber: paragraphInfo.lines.start - 1,
+                afterLineNumber: range!.startLineNumber - 1,
                 heightInLines: Math.max(3, lines),
                 domNode: zoneNode,
                 marginDomNode: marginDomNode,
@@ -261,6 +269,7 @@ export async function monaco_init() {
         });
 
     }
+
 
     return await MonacoPromise;
 

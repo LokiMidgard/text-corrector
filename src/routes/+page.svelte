@@ -156,7 +156,10 @@
 	<div>
 		{#if currentState}
 			<div>Working on {currentState.path}</div>
-			<div>Progress {currentState.paragraph.value}/{currentState.paragraph.of}</div>
+			<div>
+				Progress {currentState.paragraphInfo.filter((x) => x.judgment).length}/{currentState
+					.paragraphInfo.length}
+			</div>
 			{#if !connectedToBackend}
 				<div>
 					runtime {Duration.fromDurationLike({
@@ -168,7 +171,7 @@
 						.normalize()
 						.toHuman()} waiting for backend to come back.
 				</div>
-			{:else if currentState.paragraph.value == currentState.paragraph.of}
+			{:else if currentState.paragraphInfo.filter((x) => x.judgment).length == currentState.paragraphInfo.length}
 				<div>
 					runtime {Duration.fromDurationLike({
 						milliseconds: currentState.time_in_ms,
@@ -302,7 +305,7 @@
 		bottom: 0;
 		// height: calc(100vh - var(--header-height));
 		position: fixed;
-		container-name: mainframe  ;
+		container-name: mainframe;
 		container-type: size;
 	}
 

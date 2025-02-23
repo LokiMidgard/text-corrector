@@ -12,7 +12,7 @@ import * as svelteEnve from '$env/static/private'
 
 import { z } from 'zod';
 
-import type { BlockContent, DefinitionContent, Paragraph, Root, RootContent } from 'mdast';
+import type { BlockContent, DefinitionContent, Paragraph, RootContent } from 'mdast';
 
 import * as git from '$lib/server/git'
 import { fireUpdate } from '$lib/trpc/router';
@@ -73,11 +73,13 @@ const env = envParser.parse(svelteEnve);
 // check if all required systems files are present
 const requiredFiles = [
     'systems/general.system',
-    'systems/spelling.system',
-    'systems/correction.system',
-    'systems/improvement.system'
+    'systems/desired.system',
+    'systems/context.system',
 ];
 
+
+const desired = fs.readFileSync('systems/desired.system', 'utf8');
+const context = fs.readFileSync('systems/context.system', 'utf8');
 
 const missingFiles = requiredFiles.filter(file => !fs.existsSync(file));
 
@@ -226,10 +228,6 @@ async function createModels() {
     const ollama = new Ollama({ host: `${protocol}://${host}:${port}`, fetch: noTimeoutFetch });
     const models = await ollama.list();
 
-
-    const spellingSystem = fs.readFileSync('systems/spelling.system', 'utf8');
-    const correctionSystem = fs.readFileSync('systems/correction.system', 'utf8');
-    const improvementSystem = fs.readFileSync('systems/improvement.system', 'utf8');
     const generalSystem = fs.readFileSync('systems/general.system', 'utf8');
 
     if (models.models.every(m => m.name !== 'general')) {
@@ -238,28 +236,6 @@ async function createModels() {
         await ollama.delete({ model: 'general' });
         await ollama.create({ model: 'general', from: model, system: generalSystem, parameters: { num_ctx: context_window } });
     }
-    if (models.models.every(m => m.name !== 'spelling')) {
-        await ollama.create({ model: 'spelling', from: model, system: spellingSystem, parameters: { num_ctx: context_window } });
-    } else {
-        await ollama.delete({ model: 'spelling' });
-        await ollama.create({ model: 'spelling', from: model, system: spellingSystem, parameters: { num_ctx: context_window } });
-    }
-
-    if (models.models.every(m => m.name !== 'correction')) {
-        await ollama.create({ model: 'correction', from: model, system: correctionSystem, parameters: { num_ctx: context_window } });
-    } else {
-        await ollama.delete({ model: 'correction' });
-        await ollama.create({ model: 'correction', from: model, system: correctionSystem, parameters: { num_ctx: context_window } });
-    }
-
-
-    if (models.models.every(m => m.name !== 'improvement')) {
-        await ollama.create({ model: 'improvement', from: model, system: improvementSystem, parameters: { num_ctx: context_window } });
-    } else {
-        await ollama.delete({ model: 'improvement' });
-        await ollama.create({ model: 'improvement', from: model, system: improvementSystem, parameters: { num_ctx: context_window } });
-    }
-
 
 
 }
@@ -309,137 +285,58 @@ export async function checkRepo(): Promise<never> {
 
 async function correct(path: string) {
 
-    const { original, correction, metadata } = (await git.tryGetCorrection(path)) ?? {
-        metadata: { paragraph: { value: 0, of: undefined }, time_in_ms: 0, messages: [], paragraphInfo: {} },
-        correction: await git.getText(path),
-        original: await git.getText(path)
+    const metadata: git.CorrectionMetadata = (await git.tryGetCorrection(path)) ?? {
+        time_in_ms: 0,
+        messages: [],
+        paragraphInfo: paragraphsWithPrefixs(await git.getText(path)).map((v) => {
+            return {
+                text: { original: formatMarkdown(v.text), },
+                involvedCharacters: undefined,
+                judgment: undefined,
+            };
+
+        }),
     };
-    if (metadata.paragraph.of === metadata.paragraph.value) {
+    if (metadata.paragraphInfo.every(v => v.judgment !== undefined)) {
         // already corrected
         return false;
     }
 
-    const desiredStyle = `
-    Du bewertest und verbesserst Textabschnitte, indem du sie inhaltlich und stilistisch überarbeitest.
-Dabei soll der verbesserte Text emotional, bildlich und plastisch wirken, sofern nicht anders festgelegt.
-`;
-    const storyContext = `
-    
-# Formatierung und Struktur
 
-- Der Text ist in Markdown geschrieben, du gibst auch Markdown zurück
-- Der Text besitzt nur Überschriften, Fett, Kursiv und Wörtlicherede (\`"\`) als Formatierung
-- Vor der Wörtlichenrede ist immer ein Marker der angibt wer gerade Spricht.
-  Wenn der Charakter Fay etwas sagt, sieht das so aus [[Fay]]"Hallo."
-- Fehlt der Marker vor der Wörtlichenrede ist dies ein Fehler.
-
-# Deine Aufgabe
-
-- Zu dem Eingabetext eine Fassung dieses zurückzuliefern,
-  bei der Grammatikfehler und Rechtschreibfehler korrigiert sind.
-- Fehlende Marker zur Wörtlichen Rede Ergänzen. Wenn möglich versuche
-  die redende Person abzuleiten und in den Marker zu schreiben.
-- Gliederung der Absätze verbessern. Zu lange Absätze wenn möglich und
-  Sinnvoll in kürzere Aufteilen.
-- Der Zurückgegebene Text enthält sonst keine weiteren Anmerkungen.
-- Wenn keine Änderungen gemacht werden müssen, gibst du den Eingabetext
-  unverändert zurück.
-
-# Informationen zur Geschichte
-
-- Die Texte sind in Deutsch geschrieben.
-- Der Protagonist heißt Fay
-- In der Geschichte existiert eine Spezies namens Telchinen
-- Telchine haben kein Geschlecht
-- Ausschließlich für Telchine wird die Geschlechtsneutrale Sprache nach De-e-System verwendet
-- Die Geschichte ist in der dritten Person in der Vergangenheit geschrieben
-- Der Erzähler beschre
-
-
-# Wiederkehrende Charaktere
-
-**Fay**:
-Protagonist Männlich
-
-**Dio**:
-Männlich
-
-**Pho**:
-Telchin
-
-**Tia**
-Weiblich
-
-**Ren**
-Weiblich
-
-# Beispiel Geschlechtsneutraler Sprache
-
-\`\`\`
-Pho sprang direkt darauf an und verwickelte ihn
-in ein Gespräch. Er überlegte ob seine Herangehensweise dabei korrekt war.
-Für einen Handwerker war er jedenfalls geschickt.
-\`\`\`
-
-wird nach De-e-System umgeschrieben zu
-
-\`\`\`
-Pho sprang direkt darauf an und verwickelte en
-in ein Gespräch. En überlegte ob ense Herangehensweise dabei korrekt war.
-Für ein Handwerkere war en jedenfalls geschickt.
-\`\`\`
-    `;
-
-
-    let story = correction;
     const messages: Array<BlockContent | DefinitionContent>[] = [];
     messages.push(...(metadata.messages ?? []));
+    metadata.messages = messages;
+
 
     // need to get ast from original so the paragraph count is correct
-
-    const paragraphsReversed = await paragraphsWithPrefixs(original).reverse();
-
+    fireUpdate(path, metadata);
 
 
-    if (paragraphsReversed.length !== metadata.paragraph.of) {
-        metadata.paragraph.of = paragraphsReversed.length;
-        await git.correctText(path, story, metadata);
-    } else {
-        fireUpdate(path, metadata);
-    }
 
-    console.log('prepare ollama');
     await createModels();
-
     const ollama = new Ollama({ host: `${protocol}://${host}:${port}`, fetch: noTimeoutFetch });
-
-    for (let i = 0; i < paragraphsReversed.length; i++) {
+    for (let i = 0; i < metadata.paragraphInfo.length; i++) {
         const startBlock = now();
-        if (i < metadata.paragraph.value) {
-            console.log(`skip paragraph ${i}`);
+        if (metadata.paragraphInfo[i]?.judgment !== undefined) {
             continue;
         }
-        const element = paragraphsReversed[i];
-        metadata.paragraph.value = i;
-        const text = element.text;
-        const prev = i < paragraphsReversed.length ? paragraphsReversed[i + 1]?.text : undefined;
-        const next = i > 0 ? paragraphsReversed[i - 1]?.text : undefined;
+        const text = metadata.paragraphInfo[i].text.original;
+        const prev = i > 0 ? metadata.paragraphInfo[i - 1]?.text.original : undefined;
+        const next = i < metadata.paragraphInfo.length ? metadata.paragraphInfo[i + 1]?.text.original : undefined;
+
         const input = {
             context: {
-                storyContext: storyContext,
-                intendedStyle: desiredStyle,
+                storyContext: context,
+                intendedStyle: desired,
                 previousParagraph: prev ?? null,
                 nextParagraph: next ?? null,
             },
             paragraphToCorrect: text,
         } satisfies CorrectionInput;
-        let changes = false;
         let currentTime = 0;
         for (let trys = 0; trys < 10; trys++) {
 
             console.log(`Process Part\n\n${text}\n\n`);
-            // eslint-disable-next-line no-debugger
-            //  debugger;
             const result = await ollama.chat({ model: 'general', messages: [{ role: 'user', content: JSON.stringify(input, undefined, 2) }], format: zodToJsonSchema(CorrectionResultParser), stream: true });
             const parts = [] as string[];
 
@@ -498,69 +395,28 @@ Für ein Handwerkere war en jedenfalls geschickt.
             correction.corrected = formatMarkdown(correction.corrected);
             correction.alternative = formatMarkdown(correction.alternative);
 
-            const start_of_text = element.start!.offset!;
-            const end_of_text = element.end!.offset!;
+            metadata.paragraphInfo[i].involvedCharacters = correction.involvedCharacters;
+            metadata.paragraphInfo[i].judgment = {
+                score: correction.judgment,
+                goodPoints: correction.goodPoints,
+                badPoints: correction.badPoints,
+            };
+            metadata.paragraphInfo[i].text.correction = correction.corrected;
+            metadata.paragraphInfo[i].text.alternative = correction.alternative;
 
 
-            const start_line_of_removed_text = element.start!.line!;
-            const end_line_of_removed_text = element.end!.line!;
-
-            const number_of_lines_removed = end_line_of_removed_text - start_line_of_removed_text + 1;
-            const number_of_lines_added = correction.corrected.split('\n').length - 1;
-
-            const line_delta = number_of_lines_added - number_of_lines_removed;
-
-            const old_text = story.substring(start_of_text, end_of_text + 1);
-
-            const newStory = story.substring(0, start_of_text)
-                + formatMarkdown(correction.corrected) + (end_of_text < story.length ? (
-                    story.substring(end_of_text + 1)) : ''
-                );
-
-            const correction_metadata_with_line_count = {
-                ...correction,
-                lines: {
-                    start: start_line_of_removed_text,
-                    end: start_line_of_removed_text + number_of_lines_added,
-                },
-                original: old_text,
-            } satisfies git.CorrectionMetadata['paragraphInfo'][number];
-
-            const current_index = paragraphsReversed.length - i - 1;
-            metadata.paragraphInfo[current_index] = correction_metadata_with_line_count;
-
-            // update the metadata of previous added paragarphs that follow this so the line numbers are correct
-            for (let j = current_index + 1; j < paragraphsReversed.length; j++) {
-                const info = metadata.paragraphInfo[j];
-                if (info) {
-                    metadata.paragraphInfo[j] = {
-                        ...info,
-                        lines: {
-                            start: info.lines.start + line_delta,
-                            end: info.lines.end + line_delta,
-                        }
-                    }
-                }
-            }
-
-            metadata.paragraph.value = i + 1
-            await git.correctText(path, newStory, metadata);
-            changes = story !== newStory
-            story = newStory;
+            await git.correctText(path, metadata);
             const endBlock = now();
             currentTime = endBlock.getTime() - startBlock.getTime();
             metadata.time_in_ms += currentTime;
             // we got an updated text just stop now
             break;
         }
-        if (!changes) {
-            console.log(`No Changes for paragraph ${paragraphsReversed.length - i}`);
-            messages.push([ParagrahTexts(`No changes for part ${paragraphsReversed.length - i}`)])
-        }
+        fireUpdate(path, metadata);
+
 
         metadata.messages = messages;
-        await git.correctText(path, story, metadata);
-
+        await git.correctText(path, metadata);
     }
 
 

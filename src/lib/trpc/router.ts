@@ -1,7 +1,7 @@
 // lib/trpc/router.ts
 import type { Context } from '$lib/trpc/context';
 import { initTRPC } from '@trpc/server';
-import { correctText, getCorrection, getCurrentCommitData,  getText, listFiles, setText, type CorrectionMetadata } from '../server/git';
+import { correctText, getCorrection, getCurrentCommitData, getText, listFiles, setText, type CorrectionMetadata } from '../server/git';
 import { z } from 'zod';
 import { observable } from '@trpc/server/observable';
 import EventEmitter from 'events';
@@ -14,7 +14,7 @@ const ee = new EventEmitter();
 
 
 
-export type UpdateData = Omit<CorrectionMetadata, 'messages'> & { path: string, messages: string[], paragraph: { of: number } };
+export type UpdateData = CorrectionMetadata & { path: string };
 
 let lastUpdate: UpdateData | null = null;
 
@@ -23,8 +23,6 @@ export function fireUpdate(path: string, metadata: CorrectionMetadata) {
     lastUpdate = {
         path,
         ...metadata,
-        paragraph: { ...metadata.paragraph, of: metadata.paragraph.of ?? 0 },
-        messages: metadata.messages.map(x => transformFromAst({ children: x, type: 'root' })),
     };
     ee.emit('update', lastUpdate)
 }
@@ -42,18 +40,7 @@ export const router = t.router({
     }),
     getCorrection: t.procedure.input(z.string()).query(async ({ input }) => {
         const corrections = await getCorrection(input);
-        return {
-            ...corrections, metadata: {
-                ...corrections.metadata,
-                messages: corrections.metadata.messages.map(m => {
-                    return transformFromAst({
-                        children: m,
-                        type: 'root'
-                    });
-                })
-
-            }
-        };
+        return corrections;
     }),
     getText: t.procedure.input(z.string()).query(async ({ input }) => {
         const text = await getText(input);
@@ -106,7 +93,9 @@ export const router = t.router({
     }),
     updateText: t.procedure.input(z.object({
         path: z.string(),
-        text: z.string(),
+        metadata: z.object({
+            paragraphs: z.object(z.string())
+        }),
         commitDetails: z.object({
             message: z.string().nonempty(),
             author: z.object({ name: z.string(), email: z.string().email() }),
@@ -120,7 +109,7 @@ export const router = t.router({
         };
         try {
             await correctText(input.path, input.text, null, { ...input.commitDetails, committer, author: committer });
-            
+
         } catch (error) {
             console.error('updateText', error);
             throw error;
