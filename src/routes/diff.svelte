@@ -69,9 +69,7 @@
 		let currentModel = model == 'original' ? originalModel : correctionModel;
 
 		if (currentModel == undefined || currentModel.metadata.path != path) {
-			if (currentModel) {
-				currentModel.dispose();
-			}
+			const oldModel = currentModel;
 			const text = meta.paragraphInfo.map((x) => {
 				if (x.selectedText && x.text[x.selectedText]) {
 					return [x.text[x.selectedText]!, x.selectedText] as const;
@@ -167,7 +165,7 @@
 					// get text in decoration
 					const text = this.getValueInRange(decoration.range);
 					this.metadata.paragraphInfo[index].text.edited = text;
-					const newKey = this.deltaDecorations(
+					const [newKey] = this.deltaDecorations(
 						[decoration.id],
 						[
 							{
@@ -179,12 +177,11 @@
 						]
 					);
 					this.metadata.paragraphInfo[index].selectedText = 'edited';
-					if (newKey.length != 1) {
-						throw new Error(`Expected 1 key got ${newKey.length}`);
+					if (newKey != decoration.id) {
+						delete keyLookup[decoration.id];
+						indexLookUp[index] = newKey;
+						keyLookup[newKey] = index;
 					}
-					delete keyLookup[decoration.id];
-					indexLookUp[index] = newKey[0];
-					keyLookup[newKey[0]] = index;
 				});
 			};
 			currentModel.handleTextEdits.bind(currentModel);
@@ -303,6 +300,14 @@
 				}
 			};
 			currentModel.setKind.bind(currentModel);
+
+			const cc = currentModel;
+			currentModel.onDidChangeContent((e) => {
+				e.changes.forEach((change) => {
+					cc.handleTextEdits(change);
+				});
+			});
+
 			if (model == 'original') {
 				originalModel = currentModel;
 				editor.setModel({
@@ -323,6 +328,9 @@
 				editor.getModifiedEditor().updateOptions({
 					readOnly: !currentModel.metadata.paragraphInfo.every((x) => x.judgment)
 				});
+			}
+			if (oldModel) {
+				oldModel.dispose();
 			}
 		} else {
 			const oldMetadata = currentModel.metadata;
@@ -419,14 +427,43 @@
 
 			// make readonly
 			editor.getOriginalEditor().updateOptions({ readOnly: true });
-			correctionModel?.onDidChangeContent((e) => {
-				e.changes.forEach((change) => {
-					const model = correctionModel;
-					if (!isCorrectedModel(model)) {
-						return;
-					}
-					model.handleTextEdits(change);
-				});
+
+			editor.getModifiedEditor().onDidChangeCursorSelection((e) => {
+				if (!correctionModel) {
+					return;
+				}
+
+				const shouldBeReadonly = correctionModel
+					.getDecorationsInRange(e.selection)
+					.map((x) => x.id)
+					.map((key) => {
+						if (!correctionModel) {
+							throw new Error('No correction model found');
+						}
+						const index = correctionModel.getIndexOfDecorationKey(key);
+						if (index == undefined) {
+							return false;
+						}
+						const shouldBeReadonly =
+							correctionModel.hasKind(index, 'edited') &&
+							correctionModel.getCurrentKind(index) != 'edited';
+						return shouldBeReadonly;
+					})
+					.some((x) => x);
+				if (shouldBeReadonly) {
+					editor.getModifiedEditor().updateOptions({ readOnly: true });
+				} else {
+					editor.getModifiedEditor().updateOptions({ readOnly: false });
+				}
+
+				const index = correctionModel.getIndexOfPosition('line', e.selection.startLineNumber);
+				if (index == undefined) {
+					return;
+				}
+				const kind = correctionModel.getCurrentKind(index);
+				if (kind == 'edited') {
+					correctionModel?.setKind(index, 'correction');
+				}
 			});
 
 			window.onresize = function () {

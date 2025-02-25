@@ -8,7 +8,7 @@ import { Agent } from 'undici'
 
 import https from 'https';
 
-// import * as svelteEnve from '$env/dynamic/private'
+import * as svelteEnve from '$env/static/private'
 
 import { z } from 'zod';
 
@@ -68,7 +68,7 @@ if (os.platform() == "win32") {
 }
 
 console.log()
-const env = envParser.parse(process.env);
+const env = envParser.parse({ ...svelteEnve, ...process.env });
 
 // check if all required systems files are present
 const requiredFiles = [
@@ -253,6 +253,7 @@ export async function checkRepo(): Promise<never> {
         try {
 
             await git.updateRepo(githubApiToken, repo);
+
             let workDone = false;
             const files = await git.listFiles();
             for (const file of files) {
