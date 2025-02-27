@@ -45,6 +45,33 @@ const CorrectionResultParser = z.object({
 
 export type CorrectionResult = z.infer<typeof CorrectionResultParser>;
 
+
+const model_properties = {
+    'qwen2.5:32b': {
+        context_window: 27192,
+    },
+    'gemma2:27b': {
+        context_window: 27192,
+    },
+    'gemma2:9b': {
+        context_window: 27192,
+    },
+    'llama3.2:3b': {
+        context_window: 27192,
+    },
+    'llama3.2:1b': {
+        context_window: 27192,
+    },
+    'llama3.1:32b': {
+        context_window: 27192,
+    },
+    'hf.co/Hasso5703/Mistral-Small-24B-Instruct-2501-Q4_0-GGUF': {
+        context_window: 27192,
+    },
+} as const satisfies Record<string, ModelPropertys>;
+
+const models = Object.keys(model_properties) as (keyof typeof model_properties)[];
+
 const envParser = z.object({
     OLLAMA_HOST: z.string(),
     OLLAMA_PROTOCOL: z.string(),
@@ -54,7 +81,7 @@ const envParser = z.object({
     GITHUB_API_TOKEN: z.string(),
     REPO: z.string(),
     PATH_FILTER: z.string().optional(),
-    MODEL: z.string().optional(),
+    MODEL: z.enum([models[0],...models]).optional(),
     CONTEXT_WINDOW: z.number().optional(),
 });
 export type Env = z.infer<typeof envParser>;
@@ -125,31 +152,8 @@ type ModelPropertys = {
     context_window: number
 }
 
-const model_properties = {
-    'qwen2.5:32b': {
-        context_window: 27192,
-    },
-    'gemma2:27b': {
-        context_window: 27192,
-    },
-    'gemma2:9b': {
-        context_window: 27192,
-    },
-    'llama3.2:3b': {
-        context_window: 27192,
-    },
-    'llama3.2:1b': {
-        context_window: 27192,
-    },
-    'llama3.1:32b': {
-        context_window: 27192,
-    },
-    'hf.co/Hasso5703/Mistral-Small-24B-Instruct-2501-Q4_0-GGUF': {
-        context_window: 27192,
-    },
-} as const satisfies Record<string, ModelPropertys>;
 // the model to use
-const model: keyof typeof model_properties = 'hf.co/Hasso5703/Mistral-Small-24B-Instruct-2501-Q4_0-GGUF';
+const model: keyof typeof model_properties = env.MODEL ?? 'hf.co/Hasso5703/Mistral-Small-24B-Instruct-2501-Q4_0-GGUF';
 // manly for debbugging purpus
 
 
