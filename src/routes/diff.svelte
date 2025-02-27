@@ -480,6 +480,13 @@
 		if (!text) {
 			throw new Error('No text found');
 		}
+		if(!correctionModel){
+			throw new Error('No correction model found');
+		}
+
+		const meta= {...correctionModel.metadata}
+		
+
 		console.log('store', text);
 		if (openDialog == 'commit') {
 			await client.finishText.query({

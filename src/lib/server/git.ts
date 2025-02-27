@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import * as syncfs from 'node:fs';
 import { Octokit } from 'octokit';
 import { v4 as uuidv4 } from 'uuid';
+import { z } from 'zod'
 
 import type { BlockContent, DefinitionContent } from 'mdast';
 
@@ -196,30 +197,61 @@ export async function setText(path: string, newText: string, commitData: Omit<gi
     }
 }
 
-export type CorrectionMetadata = {
+const correctionParserWithCorrection = z.object({
+    messages: z.array(z.any()),
+    time_in_ms: z.number(),
+    paragraphInfo: z.array(z.object({
+        text: z.object({
+            original: z.string(),
+            alternative: z.string(),
+            correction: z.string(),
+            edited: z.string().optional(),
+        }),
+        selectedText: z.enum(['original', 'alternative', 'correction', 'edited'] as const).optional(),
+        judgment: z.object({
+            goodPoints: z.string(),
+            badPoints: z.string(),
+            score: z.number(),
+        }),
+        involvedCharacters: z.array(z.string())
+    }))
+});
+const correctionParserWithoutCorrection = z.object({
+    messages: z.array(z.any()),
+    time_in_ms: z.number(),
+    paragraphInfo: z.array(z.object({
+        text: z.object({
+            original: z.string(),
+        }),
+    }))
+});
+
+const correctionParser = correctionParserWithCorrection.or(correctionParserWithoutCorrection);
+
+
+export type CorrectionMetadataWithResult = z.infer<typeof correctionParserWithCorrection> & {
     messages: Array<BlockContent | DefinitionContent>[];
-    time_in_ms: number;
-    paragraphInfo: {
-        text: {
-            original: string,
-            alternative?: string,
-            correction?: string,
-            edited?: string,
-        },
-        selectedText?: 'original' | 'alternative' | 'correction' | 'edited',
-        judgment?: {
-            goodPoints: string,
-            badPoints: string,
-            score: number,
-        },
-        involvedCharacters?: string[],
-    }[];
 };
+export type CorrectionMetadata = z.infer<typeof correctionParser> & {
+    messages: Array<BlockContent | DefinitionContent>[];
+};
+
+
+export function IsCorrectionWithResult(obj: unknown): obj is CorrectionMetadataWithResult {
+    const p = correctionParserWithCorrection.safeParse(obj);
+    return p.success;
+}
 
 export async function correctText(path: string, metadata: CorrectionMetadata, commitData?: { message?: string } & Omit<git.CommitObject, 'message' | 'parent' | 'tree'>) {
 
     const corrected = metadata.paragraphInfo
-        .map((paragraph) => paragraph.text[paragraph.selectedText!] ?? paragraph.text.original)
+        .map((paragraph) => {
+            if (IsCorrectionWithResult(paragraph)){
+                paragraph.text[paragraph.selectedText!] ?? paragraph.text.original
+
+            }
+                paragraph.text[paragraph.selectedText!] ?? paragraph.text.original
+        })
         .join('\n');
 
     const head = await git.resolveRef({ fs, dir, ref: 'HEAD' });

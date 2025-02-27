@@ -144,9 +144,12 @@ const model_properties = {
     'llama3.1:32b': {
         context_window: 27192,
     },
+    'hf.co/Hasso5703/Mistral-Small-24B-Instruct-2501-Q4_0-GGUF': {
+        context_window: 27192,
+    },
 } as const satisfies Record<string, ModelPropertys>;
 // the model to use
-const model: keyof typeof model_properties = 'qwen2.5:32b';
+const model: keyof typeof model_properties = 'hf.co/Hasso5703/Mistral-Small-24B-Instruct-2501-Q4_0-GGUF';
 // manly for debbugging purpus
 
 
