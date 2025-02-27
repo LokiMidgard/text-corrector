@@ -81,7 +81,7 @@ const envParser = z.object({
     GITHUB_API_TOKEN: z.string(),
     REPO: z.string(),
     PATH_FILTER: z.string().optional(),
-    MODEL: z.enum([models[0],...models]).optional(),
+    MODEL: z.enum([models[0], ...models]).optional(),
     CONTEXT_WINDOW: z.number().optional(),
 });
 export type Env = z.infer<typeof envParser>;
@@ -403,14 +403,17 @@ async function correct(path: string) {
             correction.corrected = formatMarkdown(correction.corrected);
             correction.alternative = formatMarkdown(correction.alternative);
 
-            metadata.paragraphInfo[i].involvedCharacters = correction.involvedCharacters;
-            metadata.paragraphInfo[i].judgment = {
+
+            const currentParagraphInfo = metadata.paragraphInfo[i] as unknown as git.CorrectionMetadataWithResult['paragraphInfo'][0];
+            currentParagraphInfo.judgment = {
                 score: correction.judgment,
                 goodPoints: correction.goodPoints,
                 badPoints: correction.badPoints,
+                model,
             };
-            metadata.paragraphInfo[i].text.correction = correction.corrected;
-            metadata.paragraphInfo[i].text.alternative = correction.alternative;
+            currentParagraphInfo.involvedCharacters = correction.involvedCharacters;
+            currentParagraphInfo.text.correction = correction.corrected;
+            currentParagraphInfo.text.alternative = correction.alternative;
 
 
             await git.correctText(path, metadata);

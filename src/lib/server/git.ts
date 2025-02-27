@@ -212,6 +212,7 @@ const correctionParserWithCorrection = z.object({
             goodPoints: z.string(),
             badPoints: z.string(),
             score: z.number(),
+            model: z.string(),
         }),
         involvedCharacters: z.array(z.string())
     }))
@@ -221,9 +222,13 @@ const correctionParserWithoutCorrection = z.object({
     time_in_ms: z.number(),
     paragraphInfo: z.array(z.object({
         text: z.object({
-            original: z.string(),
+            original: z.undefined().optional(),
+            alternative: z.undefined().optional(),
+            correction: z.undefined().optional(),
+            edited: z.undefined().optional(),
         }),
-    }))
+        judgment: z.undefined().optional(),
+    })),
 });
 
 const correctionParser = correctionParserWithCorrection.or(correctionParserWithoutCorrection);
@@ -246,11 +251,10 @@ export async function correctText(path: string, metadata: CorrectionMetadata, co
 
     const corrected = metadata.paragraphInfo
         .map((paragraph) => {
-            if (IsCorrectionWithResult(paragraph)){
-                paragraph.text[paragraph.selectedText!] ?? paragraph.text.original
-
+            if (paragraph.judgment && paragraph.selectedText) {
+                return paragraph.text[paragraph.selectedText] ?? paragraph.text.original
             }
-                paragraph.text[paragraph.selectedText!] ?? paragraph.text.original
+            return paragraph.text.original
         })
         .join('\n');
 

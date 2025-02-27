@@ -143,7 +143,9 @@
 				if (change == undefined) {
 					throw new Error(`No Changes for ${index}`);
 				}
-				const current = this.metadata.paragraphInfo[index].selectedText ?? 'original';
+				const current = this.metadata.paragraphInfo[index].judgment
+					? (this.metadata.paragraphInfo[index].selectedText ?? 'original')
+					: 'original';
 				return current;
 			};
 			currentModel.getCurrentKind.bind(currentModel);
@@ -480,12 +482,11 @@
 		if (!text) {
 			throw new Error('No text found');
 		}
-		if(!correctionModel){
+		if (!correctionModel) {
 			throw new Error('No correction model found');
 		}
 
-		const meta= {...correctionModel.metadata}
-		
+		const meta = { ...correctionModel.metadata };
 
 		console.log('store', text);
 		if (openDialog == 'commit') {
@@ -504,7 +505,9 @@
 		} else if (openDialog == 'draft') {
 			await client.updateText.query({
 				path,
-				text,
+				metadata: {
+					paragraphs: meta.paragraphInfo
+				},
 				commitDetails: {
 					author: {
 						email: dialog_email,
