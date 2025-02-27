@@ -71,12 +71,11 @@
 		if (currentModel == undefined || currentModel.metadata.path != path) {
 			const oldModel = currentModel;
 			const text = meta.paragraphInfo.map((x) => {
-				if (x.selectedText && x.text[x.selectedText]) {
-					return [x.text[x.selectedText]!, x.selectedText] as const;
-				}
 				if (model == 'original') {
 					x.selectedText = 'original';
 					return [x.text.original!, 'original'] as const;
+				} else if (x.selectedText && x.text[x.selectedText]) {
+					return [x.text[x.selectedText]!, x.selectedText] as const;
 				} else if (x.text.correction && x.text.correction != x.text.original) {
 					x.selectedText = 'correction';
 					return [x.text.correction!, 'correction'] as const;
@@ -348,8 +347,8 @@
 					// Data should not be changed if it existed before
 				}
 				// everything but original sholud be changed…
-				oldParagrapInfo.judgment = newParagrapInfo.judgment;
-				oldParagrapInfo.text = newParagrapInfo.text;
+				(oldParagrapInfo as any).judgment = newParagrapInfo.judgment;
+				(oldParagrapInfo as any).text = newParagrapInfo.text;
 				// the text should not be edited (this is only possible if everything is already set)
 				currentModel.setKind(
 					i,
@@ -486,7 +485,15 @@
 			throw new Error('No correction model found');
 		}
 
-		const meta = { ...correctionModel.metadata };
+		const meta = JSON.parse(JSON.stringify(correctionModel.metadata)) as MetadataType;
+
+		// HACK to ensure that the model is set
+		// old version of backend did not yet set the model
+		for (const element of meta.paragraphInfo) {
+			if (element.judgment) {
+				element.judgment.model = element.judgment.model ?? 'unknown';
+			}
+		}
 
 		console.log('store', text);
 		if (openDialog == 'commit') {
@@ -505,9 +512,7 @@
 		} else if (openDialog == 'draft') {
 			await client.updateText.query({
 				path,
-				metadata: {
-					paragraphs: meta.paragraphInfo
-				},
+				metadata: meta,
 				commitDetails: {
 					author: {
 						email: dialog_email,
@@ -558,6 +563,11 @@
 	<button
 		onclick={() => {
 			openDialog = 'draft';
+			client.getCommitData.query().then((data) => {
+				dialog_name = data.author.name;
+				dialog_email = data.author.email;
+				dialog_message = data.message;
+			});
 		}}>Save Draft</button
 	>
 	<button

@@ -197,55 +197,55 @@ export async function setText(path: string, newText: string, commitData: Omit<gi
     }
 }
 
-const correctionParserWithCorrection = z.object({
-    messages: z.array(z.any()),
-    time_in_ms: z.number(),
-    paragraphInfo: z.array(z.object({
-        text: z.object({
-            original: z.string(),
-            alternative: z.string(),
-            correction: z.string(),
-            edited: z.string().optional(),
-        }),
-        selectedText: z.enum(['original', 'alternative', 'correction', 'edited'] as const).optional(),
-        judgment: z.object({
-            goodPoints: z.string(),
-            badPoints: z.string(),
-            score: z.number(),
-            model: z.string(),
-        }),
-        involvedCharacters: z.array(z.string())
-    }))
+
+export const paragraphInfoWithOutCorrection = z.object({
+    text: z.object({
+        original: z.string(),
+        alternative: z.undefined().optional(),
+        correction: z.undefined().optional(),
+        edited: z.undefined().optional(),
+    }),
+    selectedText: z.enum(['original'] as const).optional(),
+    judgment: z.undefined().optional(),
 });
-const correctionParserWithoutCorrection = z.object({
-    messages: z.array(z.any()),
-    time_in_ms: z.number(),
-    paragraphInfo: z.array(z.object({
-        text: z.object({
-            original: z.undefined().optional(),
-            alternative: z.undefined().optional(),
-            correction: z.undefined().optional(),
-            edited: z.undefined().optional(),
-        }),
-        judgment: z.undefined().optional(),
-    })),
+export const paragraphInfoWithCorrection = z.object({
+    text: z.object({
+        original: z.string(),
+        alternative: z.string(),
+        correction: z.string(),
+        edited: z.string().optional(),
+    }),
+    selectedText: z.enum(['original', 'alternative', 'correction', 'edited'] as const).optional(),
+    judgment: z.object({
+        goodPoints: z.string(),
+        badPoints: z.string(),
+        score: z.number(),
+        model: z.string(),
+    }),
+    involvedCharacters: z.array(z.string())
 });
 
-const correctionParser = correctionParserWithCorrection.or(correctionParserWithoutCorrection);
+export type ParagraphInfoWithCorrection = z.infer<typeof paragraphInfoWithCorrection>;
+export type ParagraphInfoWithOutCorrection = z.infer<typeof paragraphInfoWithOutCorrection>;
+export type ParagraphInfo = ParagraphInfoWithCorrection | ParagraphInfoWithOutCorrection;
+
+export function isParagraphInfoWithCorrection(x: ParagraphInfo): x is ParagraphInfoWithCorrection {
+    return 'judgment' in x;
+}
+
+export const correctionParser = z.object({
+    messages: z.array(z.any()),
+    time_in_ms: z.number(),
+    paragraphInfo: z.array(paragraphInfoWithOutCorrection.or(paragraphInfoWithCorrection)),
+});
 
 
-export type CorrectionMetadataWithResult = z.infer<typeof correctionParserWithCorrection> & {
-    messages: Array<BlockContent | DefinitionContent>[];
-};
+
 export type CorrectionMetadata = z.infer<typeof correctionParser> & {
     messages: Array<BlockContent | DefinitionContent>[];
 };
 
 
-export function IsCorrectionWithResult(obj: unknown): obj is CorrectionMetadataWithResult {
-    const p = correctionParserWithCorrection.safeParse(obj);
-    return p.success;
-}
 
 export async function correctText(path: string, metadata: CorrectionMetadata, commitData?: { message?: string } & Omit<git.CommitObject, 'message' | 'parent' | 'tree'>) {
 

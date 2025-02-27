@@ -105,7 +105,7 @@ export async function monaco_init() {
             overlayDom.classList.add('overlay');
 
             const header = document.createElement('header');
-            header.innerText = `Judgement ${paragraphInfo.judgment?.score}`
+            header.innerText = `Judgement ${paragraphInfo.judgment?.score} by ${paragraphInfo.judgment?.model ?? 'unknown'}`;
             overlayDom.appendChild(header);
 
             const button = document.createElement('button');

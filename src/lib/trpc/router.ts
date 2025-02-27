@@ -1,11 +1,10 @@
 // lib/trpc/router.ts
 import type { Context } from '$lib/trpc/context';
 import { initTRPC } from '@trpc/server';
-import { correctText, getCorrection, getCurrentCommitData, getText, listFiles, setText, type CorrectionMetadata } from '../server/git';
+import { correctionParser, correctText, getCorrection, getCurrentCommitData, getText, listFiles, setText, type CorrectionMetadata } from '../server/git';
 import { z } from 'zod';
 import { observable } from '@trpc/server/observable';
 import EventEmitter from 'events';
-import { transformFromAst } from '$lib';
 
 export const t = initTRPC.context<Context>().create();
 
@@ -93,9 +92,7 @@ export const router = t.router({
     }),
     updateText: t.procedure.input(z.object({
         path: z.string(),
-        metadata: z.object({
-            paragraphs: z.object(z.string())
-        }),
+        metadata: correctionParser,
         commitDetails: z.object({
             message: z.string().nonempty(),
             author: z.object({ name: z.string(), email: z.string().email() }),
@@ -108,7 +105,7 @@ export const router = t.router({
             timezoneOffset: new Date().getTimezoneOffset()
         };
         try {
-            await correctText(input.path, input.text, null, { ...input.commitDetails, committer, author: committer });
+            await correctText(input.path, input.metadata, { ...input.commitDetails, committer, author: committer });
 
         } catch (error) {
             console.error('updateText', error);
