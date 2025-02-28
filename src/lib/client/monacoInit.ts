@@ -1,5 +1,5 @@
 import type { editor } from 'monaco-editor';
-import { isCorrectedModel, kinds, type CorrecedModel, type MetadataType, type ParagraphKind } from '../../routes/diff.svelte';
+import { isCorrectedModel, type CorrecedModel, type ParagraphKind } from '../../routes/diff.svelte';
 import { renderMarkdown } from '$lib';
 
 let MonacoPromise: Promise<typeof import('monaco-editor')> | undefined;
@@ -35,29 +35,72 @@ export async function monaco_init() {
                         }
                         const info = model.metadata.paragraphInfo[dataIndex];
                         const currentKind = model.getCurrentKind(dataIndex);
-                        if (currentKind == 'alternative') {
-                            console.log('alternative', value.range);
-                        }
-                        return [{
-                            range: value.range,
-                            command: {
-                                id: `review`,
-                                title: info.judgment != undefined
-                                    ? `Judgement ${info.judgment.score} (${currentKind})`
-                                    : 'Review not yet done',
-                                tooltip: 'Displays a message',
-                                arguments: [value, model]
-                            }
-                        },
-                        ...kinds.filter(x => model.hasKind(dataIndex, x) && x != model.getCurrentKind(dataIndex)).map(kind => ({
-                            range: value.range,
-                            command: {
-                                id: `switchKind`,
-                                title: `${kind}`,
-                                tooltip: 'Displays a message',
-                                arguments: [kind, value, model]
-                            }
-                        })),]
+
+                        return [
+                            ...[{
+                                range: value.range,
+                                command: {
+                                    id: `switchKind`,
+                                    title: `Original`,
+                                    tooltip: 'Displays a message',
+                                    arguments: ['original', value, model]
+                                }
+                            }].filter(() => model.hasKind(dataIndex, 'original') && currentKind != 'original'),
+                            ...[{
+                                range: value.range,
+                                command: {
+                                    id: `switchKind`,
+                                    title: `Editiert`,
+                                    tooltip: 'Displays a message',
+                                    arguments: ['edited', value, model]
+                                }
+                            }].filter(() => model.hasKind(dataIndex, 'edited') && currentKind != 'edited'),
+
+
+                            ...Object.keys(model.metadata.paragraphInfo[dataIndex].judgment)
+                                .map(usedModel => ({
+                                    range: value.range,
+                                    command: {
+                                        id: `review`,
+                                        title: `Judgement ${info.judgment[usedModel].score} (${usedModel})`,
+                                        tooltip: 'Displays a message',
+                                        arguments: [value, usedModel, model]
+                                    }
+                                })),
+                            ...[
+                                {
+                                    range: value.range,
+                                    command: {
+                                        id: `review`,
+                                        title: 'Review not yet done',
+                                        tooltip: 'Displays a message',
+                                        arguments: [value, model]
+                                    }
+                                }
+                            ].filter(() => Object.keys(model.metadata.paragraphInfo[dataIndex].judgment).length == 0),
+
+
+                            ...Object.keys(model.metadata.paragraphInfo[dataIndex].judgment)
+                                .flatMap(usedModel => [...[{
+                                    range: value.range,
+                                    command: {
+                                        id: `switchKind`,
+                                        title: `Korrektur (${usedModel})`,
+                                        tooltip: 'Displays a message',
+                                        arguments: [[usedModel, 'correction'], value, model]
+                                    }
+                                }].filter(() => currentKind != [usedModel, 'correction'] as const), ...Object.keys(model.metadata.paragraphInfo[dataIndex].judgment)
+                                    .map(desired => ({
+                                        range: value.range,
+                                        command: {
+                                            id: `switchKind`,
+                                            title: `Korrektur (${usedModel})`,
+                                            tooltip: 'Displays a message',
+                                            arguments: [[usedModel, 'alternative', desired], value, model] as const
+                                        }
+                                    })).filter((v) => currentKind != [usedModel, 'alternative', v.command.arguments[0][2]] as const),
+
+                                ])];
                     })
 
                     ,
@@ -78,7 +121,7 @@ export async function monaco_init() {
             model.setKind(dataIndex, kind);
 
         });
-        Monaco.editor.registerCommand('review', (accessor, decoration: editor.IModelDecoration, model: CorrecedModel) => {
+        Monaco.editor.registerCommand('review', (accessor, decoration: editor.IModelDecoration, usedModel: string, model: CorrecedModel) => {
             const index = model.getIndexOfDecorationKey(decoration.id);
             if (index == undefined) {
                 throw new Error('Faild to get data');
@@ -120,16 +163,16 @@ export async function monaco_init() {
             goodPoints.classList.add('good');
             goodPoints.innerText = 'Good points Loading…';
             textHolder.appendChild(goodPoints);
-            renderMarkdown(paragraphInfo.judgment!.goodPoints).then((html) => {
-                goodPoints.innerHTML = html;
+            Promise.all(paragraphInfo.judgment[usedModel].goodPoints.map(renderMarkdown)).then((htmls) => {
+                goodPoints.innerHTML = htmls.join('');
             });
             const badPoints = document.createElement('div');
             badPoints.classList.add('points');
             badPoints.classList.add('bad');
             badPoints.innerText = 'Bad points Loading…';
             textHolder.appendChild(badPoints);
-            renderMarkdown(paragraphInfo.judgment!.badPoints).then((html) => {
-                badPoints.innerHTML = html;
+            Promise.all(paragraphInfo.judgment[usedModel].badPoints.map(renderMarkdown)).then((htmls) => {
+                badPoints.innerHTML = htmls.join('');
             });
             overlayDom.appendChild(textHolder);
 
@@ -209,7 +252,7 @@ export async function monaco_init() {
 
             // resize zone if the user pulls on the lower margin
             let isResizing = false;
-            bottomGrip.onmousedown = (e) => {
+            bottomGrip.onmousedown = () => {
                 // if (e.target === bottomGrip) {
                 isResizing = true;
                 bottomGrip.classList.add('resize');

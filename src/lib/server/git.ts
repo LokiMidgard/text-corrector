@@ -197,22 +197,31 @@ export async function setText(path: string, newText: string, commitData: Omit<gi
     }
 }
 
+export const newParagrapInfo = z.object({
+    original: z.string(),
+    selectedText: z.enum(['original', 'edited'])
+        .or(z.tuple([z.string(), z.enum(['correction'])]).readonly())
+        .or(z.tuple([z.string(), z.enum(['alternative']), z.string()]).readonly()).optional(),
+    edited: z.string().optional(),
+    judgment: z.record(z.string(), z.object({
+        goodPoints: z.array(z.string()),
+        badPoints: z.array(z.string()),
+        score: z.number(),
+        text: z.object({
+            correction: z.string(),
+            alternative: z.record(z.string(), z.string()),
+        }),
+        involvedCharacters: z.array(z.string()),
+    })),
+})
 
-export const paragraphInfoWithOutCorrection = z.object({
+export type NewParagrapInfo = z.infer<typeof newParagrapInfo>;
+
+export const oldParagraphInfo = z.object({
     text: z.object({
         original: z.string(),
-        alternative: z.undefined().optional(),
-        correction: z.undefined().optional(),
-        edited: z.undefined().optional(),
-    }),
-    selectedText: z.enum(['original'] as const).optional(),
-    judgment: z.undefined().optional(),
-});
-export const paragraphInfoWithCorrection = z.object({
-    text: z.object({
-        original: z.string(),
-        alternative: z.string(),
-        correction: z.string(),
+        alternative: z.string().optional(),
+        correction: z.string().optional(),
         edited: z.string().optional(),
     }),
     selectedText: z.enum(['original', 'alternative', 'correction', 'edited'] as const).optional(),
@@ -220,43 +229,63 @@ export const paragraphInfoWithCorrection = z.object({
         goodPoints: z.string(),
         badPoints: z.string(),
         score: z.number(),
-        model: z.string(),
-    }),
-    involvedCharacters: z.array(z.string())
+        model: z.string().optional(),
+    }).optional(),
+    involvedCharacters: z.array(z.string()).optional()
 });
 
-export type ParagraphInfoWithCorrection = z.infer<typeof paragraphInfoWithCorrection>;
-export type ParagraphInfoWithOutCorrection = z.infer<typeof paragraphInfoWithOutCorrection>;
-export type ParagraphInfo = ParagraphInfoWithCorrection | ParagraphInfoWithOutCorrection;
+export type OldParagraphInfo = z.infer<typeof oldParagraphInfo>;
 
-export function isParagraphInfoWithCorrection(x: ParagraphInfo): x is ParagraphInfoWithCorrection {
-    return 'judgment' in x;
+export function isParagraphInfoWithCorrection(x: OldParagraphInfo): x is OldParagraphInfo {
+    return 'judgment' in x && x.judgment != undefined;
 }
 
-export const correctionParser = z.object({
+export const oldCorrectionParser = z.object({
     messages: z.array(z.any()),
     time_in_ms: z.number(),
-    paragraphInfo: z.array(paragraphInfoWithOutCorrection.or(paragraphInfoWithCorrection)),
+    paragraphInfo: z.array(oldParagraphInfo),
 });
 
 
 
-export type CorrectionMetadata = z.infer<typeof correctionParser> & {
+export type OldCorrectionMetadata = z.infer<typeof oldCorrectionParser> & {
     messages: Array<BlockContent | DefinitionContent>[];
 };
 
 
+export const newCorrectionParser = z.object({
+    messages: z.array(z.any()),
+    time_in_ms: z.number(),
+    paragraphInfo: z.array(newParagrapInfo),
+});
 
-export async function correctText(path: string, metadata: CorrectionMetadata, commitData?: { message?: string } & Omit<git.CommitObject, 'message' | 'parent' | 'tree'>) {
+export type NewCorrectionMetadata = z.infer<typeof newCorrectionParser> & {
+    messages: Array<BlockContent | DefinitionContent>[];
+};
 
-    const corrected = metadata.paragraphInfo
-        .map((paragraph) => {
-            if (paragraph.judgment && paragraph.selectedText) {
-                return paragraph.text[paragraph.selectedText] ?? paragraph.text.original
+export async function correctText(path: string, metadata: NewCorrectionMetadata, commitData?: { message?: string } & Omit<git.CommitObject, 'message' | 'parent' | 'tree'>) {
+
+    const corrected = metadata.paragraphInfo.map((paragraph) => {
+        if (paragraph.selectedText == undefined) {
+            // this should not happen
+            return paragraph.judgment[Object.keys(paragraph.judgment).toSorted()[0]]?.text?.correction ?? paragraph.original;
+        } else if (paragraph.selectedText == 'original') {
+            return paragraph.original;
+        } else if (paragraph.selectedText == 'edited') {
+            if (paragraph.edited) { return paragraph.edited; }
+        } else if (paragraph.selectedText[1] == 'correction') {
+            const [model] = paragraph.selectedText;
+            if (paragraph.judgment[model]) {
+                return paragraph.judgment[model].text;
             }
-            return paragraph.text.original
-        })
-        .join('\n');
+        } else if (paragraph.selectedText[1] == 'alternative') {
+            const [model, , alternative] = paragraph.selectedText;
+            if (paragraph.judgment[model] && paragraph.judgment[model].text.alternative[alternative]) {
+                return paragraph.judgment[model].text.alternative[alternative];
+            }
+        }
+        throw new Error(`Faild to buidld Text from Metdata`);
+    }).join('\n');
 
     const head = await git.resolveRef({ fs, dir, ref: 'HEAD' });
     const currentCommit = await git.resolveRef({ fs, dir, ref: head });
@@ -309,7 +338,7 @@ export async function correctText(path: string, metadata: CorrectionMetadata, co
     }
 
     const numberOfParagraphs = metadata.paragraphInfo.length;
-    const numberOfCorrectedParagraphs = metadata.paragraphInfo.filter(x => x.text.correction).length;
+    const numberOfCorrectedParagraphs = metadata.paragraphInfo.map(x => Object.keys(x.judgment).length).reduce((a, b) => a + b, 0);
 
     const actualCommitData = {
         message: `Correct ${path} ${numberOfCorrectedParagraphs}/${numberOfParagraphs} ${metadata.time_in_ms}`,
@@ -370,7 +399,7 @@ export async function tryGetCorrection(path: string) {
         return null;
     }
 }
-export async function getCorrection(path: string) {
+export async function getCorrection(path: string): Promise<NewCorrectionMetadata> {
     const head = await git.resolveRef({ fs, dir, ref: 'HEAD' });
     const currentBlob = await git.readBlob({ fs, dir, filepath: path, oid: head });
     const oid = currentBlob.oid;
@@ -386,8 +415,61 @@ export async function getCorrection(path: string) {
     };
 
     const metadataString = decode(await git.readBlob({ fs, dir, oid: correctionOid, filepath: 'metadata' }));
-    if (metadataString)
-        return JSON.parse(metadataString) as CorrectionMetadata;
+    if (metadataString) {
+        const metadataObj = JSON.parse(metadataString);
+        const isOld = oldCorrectionParser.safeParse(metadataObj);
+        if (isOld.success) {
+            // refactor to new
+            const trnasformed = {
+                messages: isOld.data.messages,
+                time_in_ms: isOld.data.time_in_ms,
+                paragraphInfo: isOld.data.paragraphInfo.map(x => {
+                    const defaultAlternativeTitle = 'standard';
+                    const defaultModel = x.judgment!.model ??  'unbekannt';
+                    const selectedText = x.selectedText == undefined
+                        ? undefined
+                        : x.selectedText == 'correction'
+                            ? [defaultModel, x.selectedText] as const
+                            : x.selectedText == 'alternative'
+                                ? [defaultModel, x.selectedText, defaultAlternativeTitle] as const
+                                : x.selectedText;
+
+                    const judgment = {} as NewCorrectionMetadata['paragraphInfo'][number]['judgment'];
+                    if (x.judgment) {
+                        const alternative = {} as Record<string, string>;
+                        alternative[defaultAlternativeTitle] = x.text.alternative!;
+                        judgment[x.judgment.model ?? 'unbekannt'] = {
+                            badPoints: [x.judgment.badPoints],
+                            goodPoints: [x.judgment.goodPoints],
+                            involvedCharacters: x.involvedCharacters!,
+                            score: x.judgment.score,
+                            text: {
+                                correction: x.text.correction!,
+                                alternative,
+                            }
+                        }
+                    }
+
+
+                    return ({
+                        original: x.text.original,
+                        edited: x.text.edited,
+                        selectedText,
+                        judgment,
+                    }) satisfies NewCorrectionMetadata['paragraphInfo'][number]
+                })
+            } satisfies NewCorrectionMetadata;
+            return trnasformed;
+        } else {
+            const isNew = newCorrectionParser.safeParse(metadataObj);
+            if (isNew.success) {
+                return isNew.data
+            } else {
+                debugger;
+                throw new Error(`Faild to read Object oldSchema ${JSON.stringify(isOld.error.flatten(), undefined, 2)}\n\n newSchema ${JSON.stringify(isNew.error.format(), undefined, 2)}`);
+            }
+        }
+    }
     else
         throw new Error('Failed to get orignal or correction');
 }

@@ -1,6 +1,9 @@
 <script lang="ts" module>
-	export const kinds = ['correction', 'original', 'alternative', 'edited'] as const;
-	export type ParagraphKind = (typeof kinds)[number];
+	// export const kinds = ['correction', 'original', 'alternative', 'edited'] as const;
+	export type ParagraphKind = Exclude<
+		NewCorrectionMetadata['paragraphInfo'][number]['selectedText'],
+		undefined
+	>;
 	export type MetadataType = UpdateData & { timestamp: DateTime };
 	export type CorrecedModel = monaco.editor.ITextModel & {
 		metadata: MetadataType;
@@ -28,7 +31,7 @@
 	import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker';
 
 	import { formatMarkdown, renderMarkdown } from '$lib';
-	import type { CorrectionMetadata, Review } from '$lib/server/git';
+	import type { NewCorrectionMetadata, Review } from '$lib/server/git';
 	import { trpc } from '$lib/trpc/client';
 	import { DateTime, Duration } from 'luxon';
 	import type { UpdateData } from '$lib/trpc/router';
@@ -61,7 +64,11 @@
 	let originalModel: CorrecedModel | undefined = $state();
 	let correctionModel: CorrecedModel | undefined = $state();
 
-	function updateModel(model: 'original' | 'correction', meta: CorrectionMetadata, path: string) {
+	function updateModel(
+		model: 'original' | 'correction',
+		meta: NewCorrectionMetadata,
+		path: string
+	) {
 		if (Monaco == undefined) {
 			throw new Error('Monaco not initialized');
 		}
@@ -71,18 +78,36 @@
 		if (currentModel == undefined || currentModel.metadata.path != path) {
 			const oldModel = currentModel;
 			const text = meta.paragraphInfo.map((x) => {
-				if (model == 'original') {
+				if (model == 'original' || x.selectedText == 'original') {
 					x.selectedText = 'original';
-					return [x.text.original!, 'original'] as const;
-				} else if (x.selectedText && x.text[x.selectedText]) {
-					return [x.text[x.selectedText]!, x.selectedText] as const;
-				} else if (x.text.correction && x.text.correction != x.text.original) {
-					x.selectedText = 'correction';
-					return [x.text.correction!, 'correction'] as const;
+					return [x.original, 'original'] as const;
+				} else if (x.selectedText == undefined) {
+					const judgment = Object.keys(x.judgment).toSorted()[0];
+					if (x.judgment) {
+						x.selectedText = [judgment, 'correction'];
+						return [x.judgment[judgment].text.correction, 'correction'] as const;
+					} else {
+						x.selectedText = 'original';
+						return [x.original, 'original'] as const;
+					}
+				} else if (x.selectedText == 'edited') {
+					if (x.edited) {
+						return [x.edited, 'edited'] as const;
+					} else {
+						x.selectedText = 'original';
+						return [x.original, 'original'] as const;
+					}
+				} else if (x.selectedText[1] == 'correction') {
+					return [x.judgment[x.selectedText[0]].text.correction, 'correction'] as const;
+				} else if (x.selectedText[1] == 'alternative') {
+					return [
+						x.judgment[x.selectedText[0]].text.alternative[x.selectedText[2]],
+						'alternative'
+					] as const;
 				} else {
 					// we do not set the selected text here
 					// so it will change as soon the correction is available
-					return [x.text.original, 'original'] as const;
+					return [x.original, 'original'] as const;
 				}
 			});
 			currentModel = Monaco.editor.createModel(
@@ -165,7 +190,7 @@
 
 					// get text in decoration
 					const text = this.getValueInRange(decoration.range);
-					this.metadata.paragraphInfo[index].text.edited = text;
+					this.metadata.paragraphInfo[index].edited = text;
 					const [newKey] = this.deltaDecorations(
 						[decoration.id],
 						[
@@ -192,20 +217,24 @@
 				if (info == undefined) {
 					throw new Error(`Unable to get metadata for ${index}`);
 				}
-				if (kind == 'alternative') {
-					return (
-						info.text.alternative != undefined &&
-						info.text.alternative != info.text.correction &&
-						info.text.alternative != info.text.original
-					);
-				} else if (kind == 'correction') {
-					return info.text.correction != undefined && info.text.correction != info.text.original;
-				} else if (kind == 'edited') {
-					return info.text.edited != undefined;
-				} else if (kind == 'original') {
+
+				if (kind == 'original') {
 					return true;
+				} else if (kind == 'edited') {
+					return info.edited != undefined;
+				} else if (kind[1] == 'correction') {
+					return (
+						info.judgment[kind[0]] != undefined &&
+						info.judgment[kind[0]].text.correction != info.original
+					);
+				} else if (kind[1] == 'alternative') {
+					return (
+						info.judgment[kind[0]].text.alternative[kind[2]] != undefined &&
+						info.judgment[kind[0]].text.alternative[kind[2]] != info.original
+					);
 				} else {
-					throw new Error(`Unknown kind ${kind}`);
+					// we should have all cases
+					throw new Error('Sholud not happen');
 				}
 			};
 			currentModel.hasKind.bind(currentModel);
@@ -221,14 +250,14 @@
 						throw new Error(`Kind ${kind} not available for ${index}`);
 					}
 					const newTextUnformated =
-						kind == 'alternative'
-							? info.text.alternative
-							: kind == 'correction'
-								? info.text.correction
-								: kind == 'original'
-									? info.text.original
-									: kind == 'edited'
-										? info.text.edited
+						kind == 'original'
+							? info.original
+							: kind == 'edited'
+								? info.edited!
+								: kind[1] == 'correction'
+									? info.judgment[kind[0]].text.correction
+									: kind[1] == 'alternative'
+										? info.judgment[kind[0]].text.alternative[kind[2]]
 										: undefined;
 					if (newTextUnformated == undefined) {
 						throw new Error(`Cant find text for ${kind}`);
@@ -283,7 +312,7 @@
 						[
 							{
 								options: {
-									blockClassName: kind
+									blockClassName: typeof kind == 'string' ? kind : kind[1]
 								},
 								range: rangeAfterChange
 							}
@@ -339,7 +368,7 @@
 			for (let i = 0; i < oldMetadata.paragraphInfo.length; i++) {
 				const oldParagrapInfo = oldMetadata.paragraphInfo[i];
 				const newParagrapInfo = meta.paragraphInfo[i];
-				if (newParagrapInfo.text.original != oldParagrapInfo.text.original) {
+				if (newParagrapInfo.original != oldParagrapInfo.original) {
 					throw new Error('Original text should not be changed');
 				}
 				if (oldParagrapInfo.judgment || !newParagrapInfo.judgment) {
@@ -348,19 +377,22 @@
 				}
 				// everything but original sholud be changed…
 				(oldParagrapInfo as any).judgment = newParagrapInfo.judgment;
-				(oldParagrapInfo as any).text = newParagrapInfo.text;
 				// the text should not be edited (this is only possible if everything is already set)
+				const firstModel = Object.keys(newParagrapInfo.judgment).toSorted()[0];
 				currentModel.setKind(
 					i,
-					model == 'original' ? 'original' : (newParagrapInfo.selectedText ?? 'correction')
+					model == 'original'
+						? 'original'
+						: (newParagrapInfo.selectedText ?? [firstModel, 'correction'])
 				);
 			}
 		}
 	}
 
 	function updateText(selectedPath: string) {
-		client.getCorrection.query(selectedPath).then((meta) => {
+		client.getCorrection.query(selectedPath).then((wrongMeta) => {
 			if (!Monaco) return;
+			const meta = wrongMeta as NewCorrectionMetadata;
 
 			updateModel('original', meta, selectedPath);
 			updateModel('correction', meta, selectedPath);
@@ -457,14 +489,14 @@
 					editor.getModifiedEditor().updateOptions({ readOnly: false });
 				}
 
-				const index = correctionModel.getIndexOfPosition('line', e.selection.startLineNumber);
-				if (index == undefined) {
-					return;
-				}
-				const kind = correctionModel.getCurrentKind(index);
-				if (kind == 'edited') {
-					correctionModel?.setKind(index, 'correction');
-				}
+				// const index = correctionModel.getIndexOfPosition('line', e.selection.startLineNumber);
+				// if (index == undefined) {
+				// 	return;
+				// }
+				// const kind = correctionModel.getCurrentKind(index);
+				// if (kind == 'edited') {
+				// 	correctionModel?.setKind(index, 'correction');
+				// }
 			});
 
 			window.onresize = function () {

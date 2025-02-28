@@ -1,7 +1,7 @@
 // lib/trpc/router.ts
 import type { Context } from '$lib/trpc/context';
 import { initTRPC } from '@trpc/server';
-import { correctionParser, correctText, getCorrection, getCurrentCommitData, getText, listFiles, setText, type CorrectionMetadata } from '../server/git';
+import { correctText, getCorrection, getCurrentCommitData, getText, listFiles, newCorrectionParser, setText, type NewCorrectionMetadata } from '../server/git';
 import { z } from 'zod';
 import { observable } from '@trpc/server/observable';
 import EventEmitter from 'events';
@@ -13,11 +13,11 @@ const ee = new EventEmitter();
 
 
 
-export type UpdateData = CorrectionMetadata & { path: string };
+export type UpdateData = NewCorrectionMetadata & { path: string };
 
 let lastUpdate: UpdateData | null = null;
 
-export function fireUpdate(path: string, metadata: CorrectionMetadata) {
+export function fireUpdate(path: string, metadata: NewCorrectionMetadata) {
     console.log('fireUpdate', path, metadata);
     lastUpdate = {
         path,
@@ -92,7 +92,7 @@ export const router = t.router({
     }),
     updateText: t.procedure.input(z.object({
         path: z.string(),
-        metadata: correctionParser,
+        metadata: newCorrectionParser,
         commitDetails: z.object({
             message: z.string().nonempty(),
             author: z.object({ name: z.string(), email: z.string().email() }),
