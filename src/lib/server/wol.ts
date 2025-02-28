@@ -143,8 +143,6 @@ const env = envParser.parse({ ...svelteEnve, ...process.env });
 
 // check if all required systems files are present
 const requiredFiles = [
-    'systems/general.system',
-    'systems/desired.system',
     'systems/context.system',
 ];
 
@@ -287,7 +285,7 @@ async function createModels() {
         const models = await ollama.list();
         const { context_window } = model_properties[model];
         const modelName = `general-${model}`;
-        const generalSystem = generalSmystem(model);
+        const generalSystem = generalSmystem("Jugendbücher");
 
         if (models.models.every(m => m.name !== modelName)) {
             await ollama.create({ model: modelName, from: model, system: generalSystem, parameters: { num_ctx: context_window } });
