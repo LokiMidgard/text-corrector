@@ -283,7 +283,7 @@ async function createModels() {
     const ollama = new Ollama({ host: `${protocol}://${host}:${port}`, fetch: noTimeoutFetch });
     for (const model of usedModels) {
         const models = await ollama.list();
-        const { context_window } = model_properties[model];
+        const context_window  = model_properties[model]?.context_window;
         const modelName = `general-${model}`;
         const generalSystem = generalSmystem("Jugendbücher");
 
