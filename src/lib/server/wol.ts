@@ -283,7 +283,7 @@ async function createModels() {
     const ollama = new Ollama({ host: `${protocol}://${host}:${port}`, fetch: noTimeoutFetch });
     for (const model of usedModels) {
         const models = await ollama.list();
-        const context_window  = model_properties[model]?.context_window;
+        const context_window = model_properties[model]?.context_window;
         const modelName = `general-${model}`;
         const generalSystem = generalSmystem("Jugendbücher");
 
@@ -355,14 +355,13 @@ async function correct(path: string) {
 
         }),
     };
+    console.log(`Correct ${path} with ${metadata.paragraphInfo.length} paragraphs and [${usedModels.join(', ')}] models`);
     if (metadata.paragraphInfo.every(v => {
         const progressed = Object.keys(v.judgment);
-        if (progressed.length == usedModels.length && progressed.every(k => usedModels.includes(k as keyof typeof model_properties))) {
-            return true;
-        }
-
+        return progressed.length == usedModels.length && progressed.every(k => usedModels.includes(k as keyof typeof model_properties));
     })) {
         // already corrected
+        console.log(`Already corrected ${path}`);
         return false;
     }
 
@@ -381,6 +380,7 @@ async function correct(path: string) {
     const ollama = new Ollama({ host: `${protocol}://${host}:${port}`, fetch: noTimeoutFetch });
     for (let i = 0; i < metadata.paragraphInfo.length; i++)
         for (const model of usedModels) {
+            console.log(`Process Part ${i} of ${metadata.paragraphInfo.length} with model ${model}`);
             const startBlock = now();
             if (metadata.paragraphInfo[i]?.judgment !== undefined) {
                 continue;

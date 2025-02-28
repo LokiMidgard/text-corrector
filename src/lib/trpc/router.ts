@@ -49,10 +49,10 @@ export const router = t.router({
         // .output(onProgress)
         // .input(z.string())
         .subscription(() => {
-            console.log('subscribing to onMessage');
+            // console.log('subscribing to onMessage');
             return observable<UpdateData>((emit) => {
                 const callback = (meta: UpdateData) => {
-                    console.log('onMessage', meta);
+                    // console.log('onMessage', meta);
                     emit.next(meta);
                 };
                 ee.on('update', callback);
