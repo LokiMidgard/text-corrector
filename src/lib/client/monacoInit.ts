@@ -89,12 +89,13 @@ export async function monaco_init() {
                                         tooltip: 'Displays a message',
                                         arguments: [[usedModel, 'correction'], value, model]
                                     }
-                                }].filter(() => currentKind != [usedModel, 'correction'] as const), ...Object.keys(model.metadata.paragraphInfo[dataIndex].judgment)
+                                }].filter(() => currentKind != [usedModel, 'correction'] as const),
+                                ...Object.keys(model.metadata.paragraphInfo[dataIndex].judgment[usedModel].text.alternative)
                                     .map(desired => ({
                                         range: value.range,
                                         command: {
                                             id: `switchKind`,
-                                            title: `Korrektur (${usedModel})`,
+                                            title: `Formulirung (${usedModel}->${desired})`,
                                             tooltip: 'Displays a message',
                                             arguments: [[usedModel, 'alternative', desired], value, model] as const
                                         }
