@@ -382,7 +382,7 @@ async function correct(path: string) {
         for (const model of usedModels) {
             console.log(`Process Part ${i} of ${metadata.paragraphInfo.length} with model ${model}`);
             const startBlock = now();
-            if (metadata.paragraphInfo[i]?.judgment !== undefined) {
+            if (metadata.paragraphInfo[i].judgment[model] !== undefined) {
                 continue;
             }
             const text = metadata.paragraphInfo[i].original;
