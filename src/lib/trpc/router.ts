@@ -18,7 +18,6 @@ export type UpdateData = NewCorrectionMetadata & { path: string };
 let lastUpdate: UpdateData | null = null;
 
 export function fireUpdate(path: string, metadata: NewCorrectionMetadata) {
-    console.log('fireUpdate', path, metadata);
     lastUpdate = {
         path,
         ...metadata,

@@ -212,6 +212,12 @@ export const newParagrapInfo = z.object({
             alternative: z.record(z.string(), z.string()),
         }),
         involvedCharacters: z.array(z.string()),
+        protocol: z.array(z.object({
+            style: z.string(),
+            description: z.string(),
+            newValue: z.unknown(),
+            oldValue: z.unknown(),
+        })).optional(),
     })),
 })
 
@@ -425,7 +431,7 @@ export async function getCorrection(path: string): Promise<NewCorrectionMetadata
                 time_in_ms: isOld.data.time_in_ms,
                 paragraphInfo: isOld.data.paragraphInfo.map(x => {
                     const defaultAlternativeTitle = 'standard';
-                    const defaultModel = x.judgment!.model ??  'unbekannt';
+                    const defaultModel = x.judgment?.model ?? 'unbekannt';
                     const selectedText = x.selectedText == undefined
                         ? undefined
                         : x.selectedText == 'correction'

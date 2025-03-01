@@ -19,6 +19,7 @@
     overflow: hidden;
     display: grid;
     grid-template-rows: auto 1fr auto;
+    width: 100%;
 
     &>header {
         padding-left: 1em;
@@ -117,6 +118,49 @@
     --color: 0, 0, 255;
 }
 
+details.protocol-details:has(div:empty) {
+    display: none;
+}
+
+button.text{
+    background: none;
+    border: none;
+    box-shadow: none;
+    color: var(--pico-primary);
+    cursor: pointer;
+    font-size: 1em;
+    font-weight: bold;
+    padding: 0.5em;
+    border: none;
+    padding: 0em;
+    // text-align: center;
+    // width: 100%;
+    
+    &:hover {
+        color: var(--pico-primary-hover);
+        border: none;
+        box-shadow: none;
+    }
+    
+    &:active {
+        color: var(--pico-primary-focus);
+        box-shadow: none;
+        border: none;
+    }
+    &:focus {
+        color: var(--pico-primary-focus);
+        box-shadow: none;
+        border: none;
+        outline: none !important;
+    }
+    
+    &.selected {
+        text-decoration: underline;
+        text-decoration-color: var(--pico-primary-underline);
+        box-shadow: none;
+        border: none;
+    }
+}
 
 
 

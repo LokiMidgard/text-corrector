@@ -83,7 +83,7 @@
 					return [x.original, 'original'] as const;
 				} else if (x.selectedText == undefined) {
 					const judgment = Object.keys(x.judgment).toSorted()[0];
-					if (x.judgment) {
+					if (judgment) {
 						x.selectedText = [judgment, 'correction'];
 						return [x.judgment[judgment].text.correction, 'correction'] as const;
 					} else {

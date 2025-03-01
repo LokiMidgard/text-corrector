@@ -157,8 +157,10 @@
 		{#if currentState}
 			<div>Working on {currentState.path}</div>
 			<div>
-				Progress {currentState.paragraphInfo.filter((x) => x.judgment).length}/{currentState
-					.paragraphInfo.length}
+				Progress {currentState.paragraphInfo.reduce(
+					(p, c) => p + Object.keys(c.judgment).length,
+					0
+				)}/{currentState.paragraphInfo.length}
 			</div>
 			{#if !connectedToBackend}
 				<div>

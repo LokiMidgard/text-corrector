@@ -4,6 +4,11 @@ import type { Env } from "$lib/server/wol";
 
 // for information about these interfaces
 declare global {
+	function fetch(
+		input: string | URL | globalThis.Request,
+		init?: RequestInit & { agent?: https.Agent, dispatcher?: Agent },
+	): Promise<Response>;
+
 	namespace App {
 		// interface Error {}
 		// interface Locals {}

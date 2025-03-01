@@ -33,10 +33,41 @@ export async function monaco_init() {
                         if (dataIndex == undefined) {
                             throw new Error('Faild to get data');
                         }
-                        const info = model.metadata.paragraphInfo[dataIndex];
+                        // const info = model.metadata.paragraphInfo[dataIndex];
                         const currentKind = model.getCurrentKind(dataIndex);
 
                         return [
+                            ...[
+                                {
+                                    range: value.range,
+                                    command: {
+                                        id: `review`,
+                                        title: 'Review not yet done',
+                                        tooltip: 'Displays a message',
+                                        arguments: [value, model]
+                                    }
+                                }
+                            ].filter(() => Object.keys(model.metadata.paragraphInfo[dataIndex].judgment).length == 0),
+                            ...[
+                                {
+                                    range: value.range,
+                                    command: {
+                                        id: `review`,
+                                        title: `Review (${typeof currentKind == 'string'
+                                            ? currentKind
+                                            : currentKind[1] == 'correction'
+                                                ? `Korrektur ${currentKind[0]}`
+                                                : currentKind[1] == 'alternative'
+                                                    ? `Formulirung ${currentKind[0]}->${currentKind[2]}`
+                                                    : 'unknown'
+                                            })`,
+                                        tooltip: 'Displays a message',
+                                        arguments: [value, model]
+                                    }
+                                }
+                            ].filter(() => Object.keys(model.metadata.paragraphInfo[dataIndex].judgment).length != 0),
+
+
                             ...[{
                                 range: value.range,
                                 command: {
@@ -57,51 +88,40 @@ export async function monaco_init() {
                             }].filter(() => model.hasKind(dataIndex, 'edited') && currentKind != 'edited'),
 
 
-                            ...Object.keys(model.metadata.paragraphInfo[dataIndex].judgment)
-                                .map(usedModel => ({
-                                    range: value.range,
-                                    command: {
-                                        id: `review`,
-                                        title: `Judgement ${info.judgment[usedModel].score} (${usedModel})`,
-                                        tooltip: 'Displays a message',
-                                        arguments: [value, usedModel, model]
-                                    }
-                                })),
-                            ...[
-                                {
-                                    range: value.range,
-                                    command: {
-                                        id: `review`,
-                                        title: 'Review not yet done',
-                                        tooltip: 'Displays a message',
-                                        arguments: [value, model]
-                                    }
-                                }
-                            ].filter(() => Object.keys(model.metadata.paragraphInfo[dataIndex].judgment).length == 0),
+                            // ...Object.keys(model.metadata.paragraphInfo[dataIndex].judgment)
+                            //     .map(usedModel => ({
+                            //         range: value.range,
+                            //         command: {
+                            //             id: `review`,
+                            //             title: `Judgement ${info.judgment[usedModel].score} (${usedModel})`,
+                            //             tooltip: 'Displays a message',
+                            //             arguments: [value, usedModel, model]
+                            //         }
+                            //     })),
 
 
-                            ...Object.keys(model.metadata.paragraphInfo[dataIndex].judgment)
-                                .flatMap(usedModel => [...[{
-                                    range: value.range,
-                                    command: {
-                                        id: `switchKind`,
-                                        title: `Korrektur (${usedModel})`,
-                                        tooltip: 'Displays a message',
-                                        arguments: [[usedModel, 'correction'], value, model]
-                                    }
-                                }].filter(() => currentKind != [usedModel, 'correction'] as const),
-                                ...Object.keys(model.metadata.paragraphInfo[dataIndex].judgment[usedModel].text.alternative)
-                                    .map(desired => ({
-                                        range: value.range,
-                                        command: {
-                                            id: `switchKind`,
-                                            title: `Formulirung (${usedModel}->${desired})`,
-                                            tooltip: 'Displays a message',
-                                            arguments: [[usedModel, 'alternative', desired], value, model] as const
-                                        }
-                                    })).filter((v) => currentKind != [usedModel, 'alternative', v.command.arguments[0][2]] as const),
-
-                                ])];
+                            // ...Object.keys(model.metadata.paragraphInfo[dataIndex].judgment)
+                            //     .flatMap(usedModel => [...[{
+                            //         range: value.range,
+                            //         command: {
+                            //             id: `switchKind`,
+                            //             title: `Korrektur (${usedModel})`,
+                            //             tooltip: 'Displays a message',
+                            //             arguments: [[usedModel, 'correction'], value, model]
+                            //         }
+                            //     }].filter(() => currentKind != [usedModel, 'correction'] as const),
+                            //     ...Object.keys(model.metadata.paragraphInfo[dataIndex].judgment[usedModel].text.alternative)
+                            //         .map(desired => ({
+                            //             range: value.range,
+                            //             command: {
+                            //                 id: `switchKind`,
+                            //                 title: `Formulirung (${usedModel}->${desired})`,
+                            //                 tooltip: 'Displays a message',
+                            //                 arguments: [[usedModel, 'alternative', desired], value, model] as const
+                            //             }
+                            //         })).filter((v) => currentKind != [usedModel, 'alternative', v.command.arguments[0][2]] as const),
+                            // ])
+                        ];
                     })
 
                     ,
@@ -122,7 +142,7 @@ export async function monaco_init() {
             model.setKind(dataIndex, kind);
 
         });
-        Monaco.editor.registerCommand('review', (accessor, decoration: editor.IModelDecoration, usedModel: string, model: CorrecedModel) => {
+        Monaco.editor.registerCommand('review', (accessor, decoration: editor.IModelDecoration, model: CorrecedModel) => {
             const index = model.getIndexOfDecorationKey(decoration.id);
             if (index == undefined) {
                 throw new Error('Faild to get data');
@@ -134,6 +154,11 @@ export async function monaco_init() {
 
             const editor = Monaco.editor.getEditors().filter(x => x.getModel() === model)[0]
                 ?? Monaco.editor.getDiffEditors().filter(x => x.getModel()?.modified === model)[0];
+
+
+
+            const currentKind = model.getCurrentKind(index);
+
 
 
 
@@ -159,27 +184,160 @@ export async function monaco_init() {
             const textHolder = document.createElement('div');
             textHolder.classList.add('text')
 
+
+            const list = document.createElement('ul');
+            list.classList.add('models');
+            textHolder.appendChild(list);
+            const kindChangedListener = [] as ((newKind: ParagraphKind) => void)[];
+            function updateKind(newKind: ParagraphKind) {
+                kindChangedListener.forEach(x => x(newKind));
+            }
+            Object.keys(paragraphInfo.judgment).forEach((modelName) => {
+                const item = document.createElement('li');
+                list.appendChild(item);
+                const button = document.createElement('button');
+                item.appendChild(button);
+
+                button.innerText = `Korrektur ${modelName} (${paragraphInfo.judgment[modelName].score})`;
+                button.classList.add('text');
+
+
+
+                if (currentKind == [modelName, 'correction'] as const) {
+                    button.classList.add('selected');
+                }
+
+                kindChangedListener.push((changedKind) => {
+                    if (typeof changedKind == 'string') {
+                        return;
+                    }
+                    const [newModelName, newKind] = changedKind;
+                    if (newModelName === modelName && newKind === 'correction') {
+                        button.classList.add('selected');
+                    } else {
+                        button.classList.remove('selected');
+                    }
+                });
+
+                button.onclick = () => {
+                    model.setKind(index, [modelName, 'correction']);
+                    updateKind(model.getCurrentKind(index));
+                }
+                const subList = document.createElement('ul');
+                item.appendChild(subList);
+
+                Object.keys(paragraphInfo.judgment[modelName].text.alternative).forEach((alternative) => {
+                    const subItem = document.createElement('li');
+                    subList.appendChild(subItem);
+                    const subButton = document.createElement('button');
+                    subItem.appendChild(subButton);
+                    subButton.innerText = `Formulirung ${alternative}`;
+                    subButton.classList.add('text');
+                    if (currentKind === [modelName, 'alternative', alternative] as const) {
+                        subButton.classList.add('selected');
+                    }
+                    kindChangedListener.push((changedKind) => {
+                        if (typeof changedKind == 'string') {
+                            return;
+                        }
+                        const [newModelName, newKind, newAlternative] = changedKind;
+                        if (newModelName === modelName && newKind === 'alternative' && newAlternative === alternative) {
+                            subButton.classList.add('selected');
+                        } else {
+                            subButton.classList.remove('selected');
+                        }
+                    });
+                    subButton.onclick = () => {
+                        model.setKind(index, [modelName, 'alternative', alternative]);
+                        updateKind(model.getCurrentKind(index));
+                    }
+                });
+            });
+
+
+
+
+
+
+
+
+
+
+
+
             const goodPoints = document.createElement('div');
             goodPoints.classList.add('points');
             goodPoints.classList.add('good');
             goodPoints.innerText = 'Good points Loading…';
             textHolder.appendChild(goodPoints);
-            Promise.all(paragraphInfo.judgment[usedModel].goodPoints.map(renderMarkdown)).then((htmls) => {
-                goodPoints.innerHTML = htmls.join('');
+            kindChangedListener.push((changedKind) => {
+                if (typeof changedKind == 'string') {
+                    return;
+                }
+                const [newModelName] = changedKind;
+                Promise.all(paragraphInfo.judgment[newModelName].goodPoints.map(renderMarkdown)).then((htmls) => {
+                    goodPoints.innerHTML = htmls.join('');
+                });
             });
             const badPoints = document.createElement('div');
             badPoints.classList.add('points');
             badPoints.classList.add('bad');
             badPoints.innerText = 'Bad points Loading…';
             textHolder.appendChild(badPoints);
-            Promise.all(paragraphInfo.judgment[usedModel].badPoints.map(renderMarkdown)).then((htmls) => {
-                badPoints.innerHTML = htmls.join('');
+            kindChangedListener.push((changedKind) => {
+                if (typeof changedKind == 'string') {
+                    return;
+                }
+                const [newModelName] = changedKind;
+                Promise.all(paragraphInfo.judgment[newModelName].badPoints.map(renderMarkdown)).then((htmls) => {
+                    badPoints.innerHTML = htmls.join('');
+                });
             });
             overlayDom.appendChild(textHolder);
 
             const bottomGrip = document.createElement('div');
             bottomGrip.classList.add('grip');
             overlayDom.appendChild(bottomGrip);
+
+            const moreDetails = document.createElement('details');
+            moreDetails.classList.add('protocol-details');
+            const summary = document.createElement('summary');
+            summary.innerText = 'More Details';
+            moreDetails.appendChild(summary);
+            const details = document.createElement('div');
+            moreDetails.appendChild(details);
+            overlayDom.appendChild(moreDetails);
+
+            kindChangedListener.push((changedKind) => {
+                if (typeof changedKind == 'string') {
+                    return;
+                }
+                const [newModelName] = changedKind;
+                const judgment = paragraphInfo.judgment[newModelName];
+                details.innerHTML = '';
+                if (judgment.protocol != undefined && judgment.protocol.length > 0) {
+                    const protocol = document.createElement('ul');
+                    details.appendChild(protocol);
+                    judgment.protocol.forEach((point) => {
+                        const item = document.createElement('li');
+                        const style = document.createElement('div');
+                        const change = document.createElement('div');
+                        const newValue = document.createElement('pre');
+                        const oldValue = document.createElement('pre');
+                        style.innerText = point.style;
+                        change.innerText = point.description;
+                        newValue.innerText = JSON.stringify(point.newValue, null, 2);
+                        oldValue.innerText = JSON.stringify(point.oldValue, null, 2);
+                        item.appendChild(style);
+                        item.appendChild(change);
+                        item.appendChild(newValue);
+                        item.appendChild(oldValue);
+                        protocol.appendChild(item);
+                    });
+                }
+            });
+
+
 
 
 
