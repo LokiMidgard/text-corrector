@@ -385,7 +385,9 @@ async function correct(path: string) {
 
                 console.log(`Process Part ${i} of ${metadata.paragraphInfo.length} with model ${model} and desired style ${desiredTitle}`);
                 const startBlock = now();
-                if (metadata.paragraphInfo[i].judgment[model] !== undefined) {
+                if (metadata.paragraphInfo[i].judgment[model] !== undefined && metadata.paragraphInfo[i].judgment[model].text.alternative[desiredTitle] !== undefined) {
+                    // we already have a judgment for this model and style
+                    // just skip this
                     continue;
                 }
                 const text = metadata.paragraphInfo[i].original;
