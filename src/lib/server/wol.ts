@@ -272,7 +272,7 @@ async function correct(path: string) {
     // need to get ast from original so the paragraph count is correct
     fireUpdate(path, metadata);
 
-
+    console.log('correct spelling and grammar');
     for (let i = 0; i < metadata.paragraphInfo.length; i++) {
         const text = metadata.paragraphInfo[i].original;
         const result = await getLanguageToolResult(text);
