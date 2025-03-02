@@ -1,7 +1,7 @@
 
 export const paragrapInfo = z.object({
     original: z.string(),
-    selectedText: z.enum(['original', 'edited'])
+    selectedText: z.enum(['original', 'edited', 'corrected'])
         .or(z.tuple([z.string(), z.enum(['correction'])]).readonly())
         .or(z.tuple([z.string(), z.enum(['alternative']), z.string()]).readonly()).optional(),
     edited: z.string().optional(),
@@ -163,7 +163,6 @@ export async function wake({ ip, mac, isHealthy }: { ip: string, mac: string, is
     while (!(await isHealthy())) {
         await new Promise((resolve) => setTimeout(resolve, 5000));
     }
-    console.log('server is healthy');
 
 }
 

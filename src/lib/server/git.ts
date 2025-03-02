@@ -234,9 +234,14 @@ export async function correctText(path: string, metadata: NewCorrectionMetadata,
     const corrected = metadata.paragraphInfo.map((paragraph) => {
         if (paragraph.selectedText == undefined) {
             // this should not happen
+            if (paragraph.corrected?.text) {
+                return paragraph.corrected.text;
+            }
             return paragraph.judgment[Object.keys(paragraph.judgment).toSorted()[0]]?.text?.correction ?? paragraph.original;
         } else if (paragraph.selectedText == 'original') {
             return paragraph.original;
+        } else if (paragraph.selectedText == 'corrected') {
+            if (paragraph.corrected?.text) return paragraph.corrected.text;
         } else if (paragraph.selectedText == 'edited') {
             if (paragraph.edited) { return paragraph.edited; }
         } else if (paragraph.selectedText[1] == 'correction') {

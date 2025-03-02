@@ -82,10 +82,21 @@
 					x.selectedText = 'original';
 					return [x.original, 'original'] as const;
 				} else if (x.selectedText == undefined) {
+					if(x.corrected) {
+						x.selectedText = 'corrected';
+						return [x.corrected.text, 'corrected'] as const;
+					}
 					const judgment = Object.keys(x.judgment).toSorted()[0];
 					if (judgment) {
 						x.selectedText = [judgment, 'correction'];
 						return [x.judgment[judgment].text.correction, 'correction'] as const;
+					} else {
+						x.selectedText = 'original';
+						return [x.original, 'original'] as const;
+					}
+				} else if (x.selectedText == 'corrected') {
+					if (x.corrected) {
+						return [x.corrected.text, 'corrected'] as const;
 					} else {
 						x.selectedText = 'original';
 						return [x.original, 'original'] as const;
@@ -111,7 +122,7 @@
 				}
 			});
 			currentModel = Monaco.editor.createModel(
-				text.map(([x]) => x).join('\n'),
+				formatMarkdown(text.map(([x]) => x).join('\n')),
 				'markdown'
 			) as CorrecedModel;
 
@@ -222,6 +233,8 @@
 					return true;
 				} else if (kind == 'edited') {
 					return info.edited != undefined;
+				} else if (kind == 'corrected') {
+					return info.corrected != undefined;
 				} else if (kind[1] == 'correction') {
 					return (
 						info.judgment[kind[0]] != undefined &&
@@ -254,11 +267,13 @@
 							? info.original
 							: kind == 'edited'
 								? info.edited!
-								: kind[1] == 'correction'
-									? info.judgment[kind[0]].text.correction
-									: kind[1] == 'alternative'
-										? info.judgment[kind[0]].text.alternative[kind[2]]
-										: undefined;
+								: kind == 'corrected'
+									? info.corrected?.text!
+									: kind[1] == 'correction'
+										? info.judgment[kind[0]].text.correction
+										: kind[1] == 'alternative'
+											? info.judgment[kind[0]].text.alternative[kind[2]]
+											: undefined;
 					if (newTextUnformated == undefined) {
 						throw new Error(`Cant find text for ${kind}`);
 					}
@@ -377,13 +392,14 @@
 				}
 				// everything but original sholud be changed…
 				(oldParagrapInfo as any).judgment = newParagrapInfo.judgment;
+				oldParagrapInfo.corrected = newParagrapInfo.corrected;
 				// the text should not be edited (this is only possible if everything is already set)
 				const firstModel = Object.keys(newParagrapInfo.judgment).toSorted()[0];
 				currentModel.setKind(
 					i,
 					model == 'original'
 						? 'original'
-						: (newParagrapInfo.selectedText ?? [firstModel, 'correction'])
+						: (newParagrapInfo.selectedText ?? 'corrected')
 				);
 			}
 		}

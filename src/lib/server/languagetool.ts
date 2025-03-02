@@ -72,8 +72,7 @@ export async function getLanguageToolResult(text: string): Promise<LanguageToolR
     const host = env.LANGUAGETOOL_HOST;
     const mac = env.LANGUAGETOOL_MAC;
     const url = `${protocol}://${host}:${port}/v2/check`;
-    const ll = fetchOptions(protocol);
-
+   
     const isHealthy = async (): Promise<boolean> => {
         const response = await fetch(url, {
             method: 'POST',

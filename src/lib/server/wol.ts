@@ -206,6 +206,7 @@ export async function checkRepo(): Promise<never> {
     if (running) {
         throw new Error('Already running');
     }
+
     running = true;
     while (true) {
         try {
@@ -214,6 +215,14 @@ export async function checkRepo(): Promise<never> {
 
             let workDone = false;
             const files = await git.listFiles();
+            // first check simple spelling and grammar with langtool (its faster)
+            for (const file of files) {
+                if (pathFilter.test(file.path)) {
+                    console.log(`check ${file.path}`);
+                    workDone = await correctClassic(file.path) || workDone;
+                }
+            }
+            // then check with ollama
             for (const file of files) {
                 if (pathFilter.test(file.path)) {
                     console.log(`check ${file.path}`);
@@ -239,6 +248,180 @@ export async function checkRepo(): Promise<never> {
     }
 
 };
+
+async function correctClassic(path: string) {
+
+    const metadata: git.NewCorrectionMetadata = (await git.tryGetCorrection(path)) ?? {
+        time_in_ms: 0,
+        messages: [],
+        paragraphInfo: paragraphsWithPrefixs(await git.getText(path)).map((v) => {
+            return {
+                original: formatMarkdown(v.text),
+                judgment: {},
+            };
+
+        }),
+    };
+    console.log(`Correct langtool ${path} with ${metadata.paragraphInfo.length}`);
+    if (metadata.paragraphInfo.every(v => {
+        return v.corrected?.text != undefined;
+    })) {
+        // already corrected
+        console.log(`Already corrected ${path}`);
+        return false;
+    }
+
+
+    const messages: Array<BlockContent | DefinitionContent>[] = [];
+    messages.push(...(metadata.messages ?? []));
+    metadata.messages = messages;
+
+
+    // need to get ast from original so the paragraph count is correct
+    fireUpdate(path, metadata);
+
+    console.log('correct spelling and grammar');
+    for (let i = 0; i < metadata.paragraphInfo.length; i++) {
+        if (metadata.paragraphInfo[i].corrected !== undefined) {
+            // we already corrected this part
+            continue;
+        }
+
+        const maximumPayload = 1000;
+
+        const originalText = metadata.paragraphInfo[i].original;
+
+        let charactersToConsume = metadata.paragraphInfo[i].original.length;
+        const splittedText = [] as string[];
+        let currentStart = 0;
+
+        // chack if charactersToConsume fits in one request
+        if (charactersToConsume <= maximumPayload) {
+            splittedText.push(metadata.paragraphInfo[i].original.substring(currentStart, currentStart + charactersToConsume));
+        }
+        else {
+            // we need to split the text
+            // start at maximumPayload and go back to the next `.`, `!`, `?` that is not next to an `"` or `'` and also not next to an digit
+            const charactersToCheckAgainst = ['.', '!', '?'];
+            const charactersToIgnore = ['"', "'", '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '.', '!', '?'];
+            for (let payloadArrayIndex = maximumPayload - 1; payloadArrayIndex > 0; payloadArrayIndex--) {
+                const currentChar = originalText[currentStart + payloadArrayIndex];
+                if (charactersToCheckAgainst.includes(currentChar)) {
+                    const nextChar = originalText[currentStart + payloadArrayIndex + 1];
+                    const prevChar = originalText[currentStart + payloadArrayIndex - 1];
+                    if (!charactersToIgnore.includes(nextChar) && !charactersToIgnore.includes(prevChar)) {
+                        const text = originalText.substring(currentStart, currentStart + payloadArrayIndex + 1);
+                        if (text.length == 0) {
+                            throw new Error(`Unable to split text in ${path} at ${payloadArrayIndex}`);
+                        }
+                        if (charactersToCheckAgainst.includes(text[0])) {
+                            throw new Error(`Should end with . ? or ! in ${path} at ${payloadArrayIndex}`);
+                        }
+                        splittedText.push(text);
+                        currentStart += payloadArrayIndex + 1;
+                        charactersToConsume -= payloadArrayIndex + 1;
+                        if (charactersToConsume <= maximumPayload) {
+                            splittedText.push(originalText.substring(currentStart, currentStart + charactersToConsume));
+                            break;
+                        }
+                        payloadArrayIndex = maximumPayload; // thats an interesting way to reset the loop
+                    }
+
+                }
+            }
+
+        }
+
+        if (splittedText.join('') != metadata.paragraphInfo[i].original) {
+            throw new Error(`Splitted text does not match original text in ${path} at ${i}`);
+        }
+
+        type entry = Exclude<NewParagrapInfo['corrected'], undefined>['corrections'][number];
+
+        const [correctedText, entryes] = (await Promise.all(splittedText.map(async text => {
+
+
+            const result = await getLanguageToolResult(text);
+            let correctedText = text;
+            let furthestOffsetChange = text.length + 1;
+
+
+            const entrys = [] as entry[];
+
+            // start with the last match
+            result.matches.sort((a, b) => (b.offset + b.length) - (a.offset + a.length)).forEach(match => {
+                if (match.offset + match.length > furthestOffsetChange) {
+                    // we already changed this part
+                    return;
+                }
+                const start = match.offset;
+                const end = match.offset + match.length;
+                if (match.replacements.filter(x => x.value != undefined).length == 1) {
+                    // we can just replace it
+                    const before = text.substring(0, start);
+                    const after = text.substring(end);
+                    const replacement = match.replacements[0].value ?? '';
+                    correctedText = `${before}${replacement}${after}`;
+                    furthestOffsetChange = Math.min(furthestOffsetChange, start);
+
+                    const deltaLength = replacement.length - match.length;
+
+                    // update all entrys that are after this match (wich are all since we are going from the end)
+                    entrys.forEach(entry => {
+                        entry.offset += deltaLength;
+                    });
+
+                    entrys.push({
+                        offset: start,
+                        length: match.length,
+                        message: match.message,
+                        shortMessage: match.shortMessage,
+                        alternativeReplacement: [],
+                    });
+                }
+            });
+
+            const secondRun = await getLanguageToolResult(correctedText);
+            const anyreplacmentsLef = secondRun.matches.some(match => match.replacements.filter(x => x.value != undefined).length == 1);
+            if (anyreplacmentsLef) {
+                // we have still some replacments left
+                console.warn(`Still replacments left in ${path} at ${i}`);
+                console.warn(secondRun.matches.filter(match => match.replacements.filter(x => x.value).length == 1).map(match => match.message));
+            }
+
+            entrys.push(...secondRun.matches.filter(match => match.replacements.length != 1).map(match => {
+                return {
+                    offset: match.offset,
+                    length: match.length,
+                    message: match.message,
+                    shortMessage: match.shortMessage,
+                    alternativeReplacement: match.replacements.map(r => r.value ?? ''),
+                } satisfies Exclude<NewParagrapInfo['corrected'], undefined>['corrections'][number];
+            }
+            ));
+
+            return {
+                text: formatMarkdown(correctedText),
+                corrections: entrys,
+            };
+        }))).reduce((p, c) => {
+            const [text, entrys] = p;
+            const currentTextLength = text.length;
+
+            return [text + c.text, [...entrys, ...c.corrections.map(x => ({ ...x, offset: x.offset + currentTextLength }))]] as const;
+        }
+            , ['', []] as readonly [string, readonly entry[]]);
+        metadata.paragraphInfo[i].corrected = {
+            text: formatMarkdown(correctedText),
+            corrections: [...entryes],
+        };
+    }
+    await git.correctText(path, metadata);
+    fireUpdate(path, metadata);
+
+    return true;
+
+}
 
 async function correct(path: string) {
 
@@ -272,74 +455,6 @@ async function correct(path: string) {
     // need to get ast from original so the paragraph count is correct
     fireUpdate(path, metadata);
 
-    console.log('correct spelling and grammar');
-    for (let i = 0; i < metadata.paragraphInfo.length; i++) {
-        const text = metadata.paragraphInfo[i].original;
-        const result = await getLanguageToolResult(text);
-        let correctedText = text;
-        let furthestOffsetChange = text.length + 1;
-
-        type entry = Exclude<NewParagrapInfo['corrected'], undefined>['corrections'][number];
-
-        const entrys = [] as entry[];
-
-        // start with the last match
-        result.matches.sort((a, b) => (b.offset + b.length) - (a.offset + a.length)).forEach(match => {
-            if (match.offset + match.length > furthestOffsetChange) {
-                // we already changed this part
-                return;
-            }
-            const start = match.offset;
-            const end = match.offset + match.length;
-            if (match.replacements.filter(x => x.value).length == 1) {
-                // we can just replace it
-                const before = text.substring(0, start);
-                const after = text.substring(end);
-                const replacement = match.replacements[0].value ?? '';
-                correctedText = `${before}${replacement}${after}`;
-                furthestOffsetChange = Math.min(furthestOffsetChange, start);
-
-                const deltaLength = replacement.length - match.length;
-
-                // update all entrys that are after this match (wich are all since we are going from the end)
-                entrys.forEach(entry => {
-                    entry.offset += deltaLength;
-                });
-
-                entrys.push({
-                    offset: start,
-                    length: match.length,
-                    message: match.message,
-                    shortMessage: match.shortMessage,
-                    alternativeReplacement: [],
-                });
-            }
-        });
-
-        const secondRun = await getLanguageToolResult(correctedText);
-        const anyreplacmentsLef = secondRun.matches.some(match => match.replacements.length == 1);
-        if (anyreplacmentsLef) {
-            // we have still some replacments left
-            console.warn(`Still replacments left in ${path} at ${i}`);
-        }
-
-        entrys.push(...secondRun.matches.filter(match => match.replacements.length != 1).map(match => {
-            return {
-                offset: match.offset,
-                length: match.length,
-                message: match.message,
-                shortMessage: match.shortMessage,
-                alternativeReplacement: match.replacements.map(r => r.value ?? ''),
-            } satisfies Exclude<NewParagrapInfo['corrected'], undefined>['corrections'][number];
-        }
-        ));
-
-        metadata.paragraphInfo[i].corrected = {
-            text: correctedText,
-            corrections: entrys,
-        };
-        fireUpdate(path, metadata);
-    }
 
 
     await createModels();
@@ -368,6 +483,7 @@ async function correct(path: string) {
 
                 const minimumCharactersToConsume = aproximatedLinse * aproximatedCharactersPerLine;
                 let charactersConsumed = 0;
+                console.log('get previous paragraphs');
                 while (charactersConsumed < minimumCharactersToConsume && i - prev.length > 0) {
                     const prevText = metadata.paragraphInfo[i - prev.length - 1].original;
                     prev.push(prevText);
@@ -375,7 +491,8 @@ async function correct(path: string) {
                 }
                 prev.reverse();
                 charactersConsumed = 0;
-                while (charactersConsumed < minimumCharactersToConsume && i + next.length < metadata.paragraphInfo.length) {
+                console.log('get next paragraphs');
+                while (charactersConsumed < minimumCharactersToConsume && (i + next.length + 1) < metadata.paragraphInfo.length) {
                     const nextText = metadata.paragraphInfo[i + next.length + 1].original;
                     next.push(nextText);
                     charactersConsumed += nextText.length;
@@ -492,7 +609,7 @@ async function correct(path: string) {
                             const bSorted = b.toSorted();
                             return aSorted.length == bSorted.length && aSorted.every((v, i) => v == bSorted[i]);
                         }
-                        if (ArrayEquals(correction.badPoints, currentParagraphInfo.judgment[model].badPoints)) {
+                        if (!ArrayEquals(correction.badPoints, currentParagraphInfo.judgment[model].badPoints)) {
                             // we got a new correction
                             // we should note the change in protocol field
                             const protocol = currentParagraphInfo.judgment[model].protocol ?? [];
@@ -504,7 +621,7 @@ async function correct(path: string) {
                             });
                             currentParagraphInfo.judgment[model].protocol = protocol;
                         }
-                        if (ArrayEquals(correction.goodPoints, currentParagraphInfo.judgment[model].goodPoints)) {
+                        if (!ArrayEquals(correction.goodPoints, currentParagraphInfo.judgment[model].goodPoints)) {
                             // we got a new correction
                             // we should note the change in protocol field
                             const protocol = currentParagraphInfo.judgment[model].protocol ?? [];
@@ -528,7 +645,7 @@ async function correct(path: string) {
                             });
                             currentParagraphInfo.judgment[model].protocol = protocol;
                         }
-                        if (ArrayEquals(correction.involvedCharacters, currentParagraphInfo.judgment[model].involvedCharacters)) {
+                        if (!ArrayEquals(correction.involvedCharacters, currentParagraphInfo.judgment[model].involvedCharacters)) {
                             // we got a new correction
                             // we should note the change in protocol field
                             const protocol = currentParagraphInfo.judgment[model].protocol ?? [];

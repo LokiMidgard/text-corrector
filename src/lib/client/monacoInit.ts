@@ -86,6 +86,15 @@ export async function monaco_init() {
                                     arguments: ['edited', value, model]
                                 }
                             }].filter(() => model.hasKind(dataIndex, 'edited') && currentKind != 'edited'),
+                            ...[{
+                                range: value.range,
+                                command: {
+                                    id: `switchKind`,
+                                    title: `Korrigiert`,
+                                    tooltip: 'Displays a message',
+                                    arguments: ['corrected', value, model]
+                                }
+                            }].filter(() => model.hasKind(dataIndex, 'corrected') && currentKind != 'corrected'),
 
 
                             // ...Object.keys(model.metadata.paragraphInfo[dataIndex].judgment)
