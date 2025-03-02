@@ -1,6 +1,7 @@
-import type { editor } from 'monaco-editor';
+import type { editor, languages } from 'monaco-editor';
 import { isCorrectedModel, type CorrecedModel, type ParagraphKind } from '../../routes/diff.svelte';
 import { renderMarkdown } from '$lib';
+import { off } from 'process';
 
 let MonacoPromise: Promise<typeof import('monaco-editor')> | undefined;
 
@@ -12,6 +13,57 @@ export async function monaco_init() {
         MonacoPromise = import('monaco-editor');
         const Monaco = await MonacoPromise;
 
+        function offsetToRange(index: number, offset: number, length: number, model: CorrecedModel): [number, number, number, number] {
+            
+        }
+
+        Monaco.languages.registerCodeActionProvider('markdown', {
+            provideCodeActions: function (model, range, context, token) {
+                if (!isCorrectedModel(model)) {
+                    return {
+                        actions: [],
+                        dispose: () => { }
+                    };
+                }
+                return {
+                    actions: model.metadata.paragraphInfo.flatMap((info, index) => {
+                        return info.corrected?.corrections.map((correction) => {
+
+                            const [startLineNumber, startColumn, endLineNumber, endColumn] = offsetToRange(index, correction.offset, correction.length, model);
+
+
+
+                            return {
+                                title: 'Review',
+                                kind: 'quickfix',
+                                edit: {
+                                    edits: [{
+
+                                    }]
+                                },
+                                diagnostics: [{
+                                    message: correction.message,
+                                    severity: Monaco.MarkerSeverity.Warning,
+                                    source: 'monaco',
+                                    code: 'review',
+                                    startLineNumber: startLineNumber,
+                                    startColumn: startColumn,
+                                    endLineNumber: endLineNumber,
+                                    endColumn: endColumn,
+                                }],
+
+
+                            } satisfies languages.CodeAction;
+
+                        });
+
+
+                    }),
+                    dispose: () => { }
+                };
+
+            }
+        });
         Monaco.languages.registerCodeLensProvider('markdown', {
             provideCodeLenses: function (model) {
                 if (!isCorrectedModel(model)) {
