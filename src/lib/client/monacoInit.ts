@@ -233,7 +233,8 @@ export async function monaco_init() {
                     subItem.appendChild(subButton);
                     subButton.innerText = `Formulirung ${alternative}`;
                     subButton.classList.add('text');
-                    if (currentKind === [modelName, 'alternative', alternative] as const) {
+                    const [newModelName, newKind, newAlternative] = currentKind;
+                    if (newModelName === modelName && newKind === 'alternative' && newAlternative === alternative) {
                         subButton.classList.add('selected');
                     }
                     kindChangedListener.push((changedKind) => {

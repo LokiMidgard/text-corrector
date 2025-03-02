@@ -11,6 +11,7 @@ import type { BlockContent, DefinitionContent } from 'mdast';
 import http from 'isomorphic-git/http/web';
 import { fireUpdate } from '$lib/trpc/router';
 import type { CorrectionResult } from './wol';
+import { paragrapInfo } from './configuration';
 
 const dir = 'repo';
 
@@ -21,21 +22,6 @@ const bot = () => ({
     timestamp: Date.now(),
     timezoneOffset: new Date().getTimezoneOffset(),
 });
-
-
-export type Review = {
-    id: string;
-    review: string;
-    improvements: {
-        original: string;
-        replacement: string;
-        reason: string;
-        location: {
-            start: { line: number; column: number };
-            end: { line: number; column: number };
-        };
-    }[];
-};
 
 
 
@@ -197,33 +183,7 @@ export async function setText(path: string, newText: string, commitData: Omit<gi
     }
 }
 
-export const newParagrapInfo = z.object({
-    original: z.string(),
-    selectedText: z.enum(['original', 'edited'])
-        .or(z.tuple([z.string(), z.enum(['correction'])]).readonly())
-        .or(z.tuple([z.string(), z.enum(['alternative']), z.string()]).readonly()).optional(),
-    edited: z.string().optional(),
-    judgment: z.record(z.string(), z.object({
-        goodPoints: z.array(z.string()),
-        badPoints: z.array(z.string()),
-        score: z.number(),
-        text: z.object({
-            correction: z.string(),
-            alternative: z.record(z.string(), z.string()),
-        }),
-        involvedCharacters: z.array(z.string()),
-        protocol: z.array(z.object({
-            style: z.string(),
-            description: z.string(),
-            newValue: z.unknown(),
-            oldValue: z.unknown(),
-        })).optional(),
-    })),
-})
-
-export type NewParagrapInfo = z.infer<typeof newParagrapInfo>;
-
-export const oldParagraphInfo = z.object({
+const oldParagraphInfo = z.object({
     text: z.object({
         original: z.string(),
         alternative: z.string().optional(),
@@ -262,7 +222,7 @@ export type OldCorrectionMetadata = z.infer<typeof oldCorrectionParser> & {
 export const newCorrectionParser = z.object({
     messages: z.array(z.any()),
     time_in_ms: z.number(),
-    paragraphInfo: z.array(newParagrapInfo),
+    paragraphInfo: z.array(paragrapInfo),
 });
 
 export type NewCorrectionMetadata = z.infer<typeof newCorrectionParser> & {

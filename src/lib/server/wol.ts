@@ -1,28 +1,20 @@
 
-import ping from 'ping';
-import wol from 'wake_on_lan';
 import fs from 'fs';
 import { Ollama } from 'ollama';
 
-import { Agent } from 'undici'
 
-import https from 'https';
-
-import * as svelteEnve from '$env/static/private'
-
-import { object, z } from 'zod';
+import { z } from 'zod';
 
 import type { BlockContent, DefinitionContent, Paragraph, RootContent } from 'mdast';
 
 import * as git from '$lib/server/git'
 import { fireUpdate } from '$lib/trpc/router';
-import * as windowsRootCerts from 'node-windows-root-certs-napi';
-import { systemCertsSync } from 'system-ca';
 import { zodToJsonSchema } from "zod-to-json-schema";
 
-import os from 'os';
 import { formatMarkdown, transformFromAst, transformToAst } from '$lib';
 import path from 'path';
+import { env, fetchOptions, wake, type NewParagrapInfo } from './configuration';
+import { getLanguageToolResult } from './languagetool';
 
 
 const generalSmystem = (theme: string) => `
@@ -116,31 +108,6 @@ const model_properties = {
 
 // const models = Object.keys(model_properties) as (keyof typeof model_properties)[];
 
-const envParser = z.object({
-    OLLAMA_HOST: z.string(),
-    OLLAMA_PROTOCOL: z.string(),
-    OLLAMA_PORT: z.string(),
-    OLLAMA_MAC: z.string(),
-    OLLAMA_IP: z.string().ip(),
-    GITHUB_API_TOKEN: z.string(),
-    REPO: z.string(),
-    PATH_FILTER: z.string().optional(),
-    MODEL: z.string().optional(),
-    CONTEXT_WINDOW: z.number().optional(),
-});
-export type Env = z.infer<typeof envParser>;
-
-const ca = os.platform() != "win32"
-    ? systemCertsSync()
-    : undefined;
-// const ca = undefined;
-if (os.platform() == "win32") {
-    windowsRootCerts.useWindowsCerts();
-}
-
-console.log()
-const env = envParser.parse({ ...svelteEnve, ...process.env });
-
 // check if all required systems files are present
 const requiredFiles = [
     'systems/context.system',
@@ -170,23 +137,14 @@ const githubApiToken = env.GITHUB_API_TOKEN;
 const repo = env.REPO;
 
 
-const fetchAgent = protocol == 'https' ? new https.Agent({ ca }) : undefined;
-
 const pathFilter = env.PATH_FILTER ? new RegExp(env.PATH_FILTER) : /story\/.*\.md/;
-const dispatcher = new Agent({
-    headersTimeout: Number.MAX_SAFE_INTEGER,
-    connect: {
-        ca
-    }
-});
 
 const noTimeoutFetch = (input: string | URL | globalThis.Request, init?: RequestInit) => {
     const someInit = init || {}
     return fetch(input, {
         ...someInit,
         keepalive: true,
-        dispatcher,
-        agent: fetchAgent,
+        ...fetchOptions(protocol)
     })
 }
 
@@ -202,59 +160,16 @@ const usedModels: (keyof typeof model_properties)[] = (env.MODEL?.split('|') ?? 
 
 
 
-async function performWake() {
-    // Path to the named pipe (same as in your Bash script)
-    const pipePath = '/opt/wol/mac_pipe';
-
-    // Check if the named pipe exists
-    if (!fs.existsSync(pipePath)) {
-        wol.wake(mac, {
-            address: ip,
-        }, function (error: unknown) {
-            if (error) {
-                console.error(error);
-            } else {
-                console.log('wol packet sent');
-            }
-        });
-    } else {
-        // Write the MAC address to the pipe
-        fs.writeFile(pipePath, `${mac}\n`, (err) => {
-            if (err) {
-                console.error(`Failed to write to pipe: ${err.message}`);
-            } else {
-                console.log(`MAC address ${mac} sent to the pipe.`);
-            }
-        });
-    }
-}
-
-async function wake() {
-    //check with ping untill pc is online if not successfull send wol
-    let state = await ping.promise.probe(ip);
-    const startTime = Date.now();
-    while (!state.alive) {
-        // try for 20 seconds
-        if (Date.now() - startTime > 20000) {
-            console.error('Failed to wake up');
-            throw new Error('Failed to wake up');
-
-        }
-        await performWake();
-
-        await new Promise((resolve) => setTimeout(resolve, 5000));
 
 
-        state = await ping.promise.probe(await ip);
-    }
 
-    // wait untill server is healthy
+async function createModels() {
+
     console.log(`wait for server to be healthy. call ${protocol}://${host}:${port}/api/version`);
     const isHealthy = async () => {
         try {
             const httpResponse = await fetch(`${protocol}://${host}:${port}/api/version`, {
-                agent: fetchAgent,
-                dispatcher,
+                ...fetchOptions(protocol),
             });
             return httpResponse.ok;
         } catch (e) {
@@ -262,18 +177,9 @@ async function wake() {
             return false;
         }
     }
-    while (!(await isHealthy())) {
-        await new Promise((resolve) => setTimeout(resolve, 5000));
-    }
-    console.log('server is healthy');
-
-}
 
 
-
-
-async function createModels() {
-    await wake();
+    await wake({ mac, ip, isHealthy });
     const ollama = new Ollama({ host: `${protocol}://${host}:${port}`, fetch: noTimeoutFetch });
     for (const model of usedModels) {
         const models = await ollama.list();
@@ -318,9 +224,7 @@ export async function checkRepo(): Promise<never> {
                 console.log('Nothing to do, shutting down remote');
                 await fetch(`${protocol}://${host}/poweroff`, {
                     method: 'POST',
-                    agent: fetchAgent,
-                    dispatcher,
-
+                    ...fetchOptions(protocol),
                 });
             }
 
@@ -368,6 +272,74 @@ async function correct(path: string) {
     // need to get ast from original so the paragraph count is correct
     fireUpdate(path, metadata);
 
+
+    for (let i = 0; i < metadata.paragraphInfo.length; i++) {
+        const text = metadata.paragraphInfo[i].original;
+        const result = await getLanguageToolResult(text);
+        let correctedText = text;
+        let furthestOffsetChange = text.length + 1;
+
+        type entry = Exclude<NewParagrapInfo['corrected'], undefined>['corrections'][number];
+
+        const entrys = [] as entry[];
+
+        // start with the last match
+        result.matches.sort((a, b) => (b.offset + b.length) - (a.offset + a.length)).forEach(match => {
+            if (match.offset + match.length > furthestOffsetChange) {
+                // we already changed this part
+                return;
+            }
+            const start = match.offset;
+            const end = match.offset + match.length;
+            if (match.replacements.filter(x => x.value).length == 1) {
+                // we can just replace it
+                const before = text.substring(0, start);
+                const after = text.substring(end);
+                const replacement = match.replacements[0].value ?? '';
+                correctedText = `${before}${replacement}${after}`;
+                furthestOffsetChange = Math.min(furthestOffsetChange, start);
+
+                const deltaLength = replacement.length - match.length;
+
+                // update all entrys that are after this match (wich are all since we are going from the end)
+                entrys.forEach(entry => {
+                    entry.offset += deltaLength;
+                });
+
+                entrys.push({
+                    offset: start,
+                    length: match.length,
+                    message: match.message,
+                    shortMessage: match.shortMessage,
+                    alternativeReplacement: [],
+                });
+            }
+        });
+
+        const secondRun = await getLanguageToolResult(correctedText);
+        const anyreplacmentsLef = secondRun.matches.some(match => match.replacements.length == 1);
+        if (anyreplacmentsLef) {
+            // we have still some replacments left
+            console.warn(`Still replacments left in ${path} at ${i}`);
+        }
+
+        entrys.push(...secondRun.matches.filter(match => match.replacements.length != 1).map(match => {
+            return {
+                offset: match.offset,
+                length: match.length,
+                message: match.message,
+                shortMessage: match.shortMessage,
+                alternativeReplacement: match.replacements.map(r => r.value ?? ''),
+            } satisfies Exclude<NewParagrapInfo['corrected'], undefined>['corrections'][number];
+        }
+        ));
+
+        metadata.paragraphInfo[i].corrected = {
+            text: correctedText,
+            corrections: entrys,
+        };
+        fireUpdate(path, metadata);
+    }
 
 
     await createModels();

@@ -1,0 +1,12 @@
+<category id="DIALOGUE_RULES" name="Dialog-Regeln">
+  <rule id="MISSTNG_CHARACTER_MARKER" name="Fehlender Charakter-Marker vor wörtlicher Rede">
+    <regexp>(?&lt;!\]\]\s{0,5})"[^"\[\]]+"</regexp>
+    <message>Fehlender Charakter-Marker vor der wörtlichen Rede. Beispiel: [[Name]]"Text"</message>
+    <example type="incorrect">Mark sah sich um. "Es ist schon sehr dunkel hier"</example>
+    <example type="correct">Mark sah sich um. [[Mark]] "Es ist schon sehr dunkel hier"</example>
+  </rule>
+  <rule id="MISSING_OPENING_CHARACTER_MARKER" name="Fehlendes Opening TAG für Charactermarkre">
+    <regexp>(?&lt;!\[\[)[~\w]+\]\]"</regexp>
+    <message>Fehlendes Opening TAG für Charactermarkre. Beispiel: [[Name]]"Text"</message>
+  </rule>
+</category>
