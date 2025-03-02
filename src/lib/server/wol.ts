@@ -378,8 +378,8 @@ async function correct(path: string) {
     await createModels();
     const ollama = new Ollama({ host: `${protocol}://${host}:${port}`, fetch: noTimeoutFetch });
     const styles = Object.keys(desiredStyles).length == 0 ? { "Keine": 'Es wird keine neue Formulierung benötigt.' } : desiredStyles;
-    for (let i = 0; i < metadata.paragraphInfo.length; i++)
-        for (const model of usedModels)
+    for (const model of usedModels)
+        for (let i = 0; i < metadata.paragraphInfo.length; i++)
             for (const [desiredTitle, desired] of Object.entries(styles)) {
 
 
