@@ -208,7 +208,6 @@ async function performWake() {
 
     // Check if the named pipe exists
     if (!fs.existsSync(pipePath)) {
-        console.debug(`Named pipe does not exist: ${pipePath}`);
         wol.wake(mac, {
             address: ip,
         }, function (error: unknown) {
@@ -250,17 +249,13 @@ async function wake() {
     }
 
     // wait untill server is healthy
-    console.log('wait for server to be healthy');
+    console.log(`wait for server to be healthy. call ${protocol}://${host}:${port}/api/version`);
     const isHealthy = async () => {
         try {
             const httpResponse = await fetch(`${protocol}://${host}:${port}/api/version`, {
                 agent: fetchAgent,
                 dispatcher,
             });
-            console.log(`call ${protocol}://${host}:${port}/api/version`);
-            if (!httpResponse.ok) {
-                console.log(`${protocol}://${host}:${port}/api/version failed ${httpResponse.status}`);
-            }
             return httpResponse.ok;
         } catch (e) {
             console.error(e);

@@ -43,7 +43,7 @@ export async function updateRepo(githubApiToken: string, repo: string) {
     console.log('Updating repository');
     try {
 
-        console.log(githubApiToken)
+
         const octokit = new Octokit({ auth: githubApiToken });
 
         const {
@@ -101,7 +101,7 @@ export async function updateRepo(githubApiToken: string, repo: string) {
                 const spellcheckId = ref.ref.substring('refs/spellcheck/'.length);
                 if ((await git.listRefs({ fs, dir, filepath: ref.ref })).length === 0) {
                     await git.writeRef({ fs, dir, ref: ref.ref, value: result.fetchHead, symbolic: false, force: true });
-                    console.log('fetched new', result);
+                    console.log('fetched new', result.fetchHead);
                 }
                 else {
                     await git.merge({
@@ -111,7 +111,7 @@ export async function updateRepo(githubApiToken: string, repo: string) {
                         theirs: result.fetchHead,
                         fastForwardOnly: true,
                     })
-                    console.log('fetched existing', result);
+                    console.log('fetched existing', result.fetchHead);
                 }
             }
         }
@@ -543,17 +543,6 @@ export async function getReview(id: string) {
     return JSON.parse(new TextDecoder().decode(blob));
 }
 
-export async function getReviews() {
-    const refs = await git.listRefs({ fs, dir, filepath: 'refs/reviews/' });
-    console.log(JSON.stringify(refs, undefined, 2));
-    const reviewRefs = refs;
-    const reviews = await Promise.all(reviewRefs.map(async (ref) => {
-        const oid = await git.resolveRef({ fs, dir, ref });
-        const { blob } = await git.readBlob({ fs, gitdir: dir, oid, filepath: 'review.json' });
-        return JSON.parse(new TextDecoder().decode(blob));
-    }));
-    return reviews;
-}
 
 async function getBlobOfPath(path: string) {
     const oid = await git.resolveRef({ fs, dir, ref: 'HEAD' });

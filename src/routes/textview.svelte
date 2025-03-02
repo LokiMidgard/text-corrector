@@ -25,7 +25,7 @@
 	let metadata: undefined | (UpdateData & { timestamp: DateTime }) = $state();
 
 	let connectedToBackend = $state(false);
-	let commandId: string | null= null;
+	let commandId: string | null = null;
 
 	// let client = $derived(trpc($page));
 
@@ -91,7 +91,6 @@
 				console.log('complete');
 			},
 			onData(message) {
-				console.log('message', message);
 				if (
 					metadata &&
 					metadata.path == path &&
@@ -195,7 +194,6 @@
 			// 		}
 			// 	});
 
-			
 			window.onresize = function () {
 				editor.layout();
 			};

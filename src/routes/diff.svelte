@@ -436,7 +436,6 @@
 				console.log('complete');
 			},
 			onData(message) {
-				console.log('message', message);
 				if (metadata && metadata.path == path) {
 					// update text
 					updateText(path);

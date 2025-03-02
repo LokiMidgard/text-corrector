@@ -60,7 +60,6 @@
 				console.log('complete');
 			},
 			onData(message) {
-				console.log('message', message);
 				currentState = { ...message, timestamp: DateTime.now() };
 				// set correction for newly started work
 

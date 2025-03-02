@@ -97,7 +97,6 @@ export const router = t.router({
             author: z.object({ name: z.string(), email: z.string().email() }),
         })
     })).query(async ({ input }) => {
-        console.log('updateText', input);
         const committer = {
             ...input.commitDetails.author,
             timestamp: Date.now(),
