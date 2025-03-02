@@ -14,7 +14,8 @@ import { zodToJsonSchema } from "zod-to-json-schema";
 import { formatMarkdown, transformFromAst, transformToAst } from '$lib';
 import path from 'path';
 import { env, fetchOptions, wake, type NewParagrapInfo } from './configuration';
-import { getLanguageToolResult } from './languagetool';
+import { getLanguageToolResult, type LanguageToolResult } from './languagetool';
+import { Semaphore } from 'await-semaphore';
 
 
 const generalSmystem = (theme: string) => `
@@ -338,10 +339,18 @@ async function correctClassic(path: string) {
 
         type entry = Exclude<NewParagrapInfo['corrected'], undefined>['corrections'][number];
 
+        const semaphore = new Semaphore(1);
+
         const [correctedText, entryes] = (await Promise.all(splittedText.map(async text => {
 
 
-            const result = await getLanguageToolResult(text);
+            let result: LanguageToolResult;
+            const toRelease = await semaphore.acquire();
+            try {
+                result = await getLanguageToolResult(text);
+            } finally {
+                toRelease();
+            }
             let correctedText = text;
             let furthestOffsetChange = text.length + 1;
 
@@ -381,7 +390,14 @@ async function correctClassic(path: string) {
                 }
             });
 
-            const secondRun = await getLanguageToolResult(correctedText);
+            let secondRun: LanguageToolResult
+            const toRelease2 = await semaphore.acquire();
+            try {
+                secondRun = await getLanguageToolResult(correctedText);
+            } finally {
+                toRelease2();
+            }
+
             const anyreplacmentsLef = secondRun.matches.some(match => match.replacements.filter(x => x.value != undefined).length == 1);
             if (anyreplacmentsLef) {
                 // we have still some replacments left
@@ -389,7 +405,7 @@ async function correctClassic(path: string) {
                 console.warn(secondRun.matches.filter(match => match.replacements.filter(x => x.value).length == 1).map(match => match.message));
             }
 
-            entrys.push(...secondRun.matches.filter(match => match.replacements.length != 1).map(match => {
+            entrys.push(...secondRun.matches.map(match => {
                 return {
                     offset: match.offset,
                     length: match.length,
