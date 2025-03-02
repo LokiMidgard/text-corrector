@@ -82,7 +82,7 @@ export async function getLanguageToolResult(text: string): Promise<LanguageToolR
             },
             body: new URLSearchParams({
                 text: 'test',
-                language: 'de',
+                language: 'de-DE',
             }),
             ...fetchOptions(protocol),
         });
