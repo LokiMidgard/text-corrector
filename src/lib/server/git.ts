@@ -237,12 +237,25 @@ export async function setText(path: string, newText: string, commitData: Omit<gi
     type Tree = git.TreeEntry[];
     const newTree = await modifyTree(rootTree.tree, newText, pathSegments)
     const newTreeOid = await git.writeTree({ fs, dir, tree: newTree });
+    if (commitData.author.timestamp == undefined) {
+        commitData.author.timestamp = Date.now();
+    }
+    if (commitData.committer.timestamp == undefined) {
+        commitData.committer.timestamp = Date.now();
+    }
+    if (commitData.author.timezoneOffset == undefined) {
+        commitData.author.timezoneOffset = new Date().getTimezoneOffset();
+    }
+    if (commitData.committer.timezoneOffset == undefined) {
+        commitData.committer.timezoneOffset = new Date().getTimezoneOffset();
+    }
 
     const newCommit = await git.writeCommit({
         fs, dir, commit: {
             ...commitData,
             parent: [currentCommitOid],
             tree: newTreeOid,
+
         }
     });
     console.log(`${newCommit} ${path} on ${branch} with name ${branchName}`);
