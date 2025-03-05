@@ -323,7 +323,7 @@ async function correctClassic(path: string) {
 
     const dictionary = await getDictionary();
 
-    const disabled_rules = ['AUSLASSUNGSPUNKTE_LEERZEICHEN', 'DE_UNPAIRED_QUOTES','KLEINE_-CHEN'];
+    const disabled_rules = ['AUSLASSUNGSPUNKTE_LEERZEICHEN', 'DE_UNPAIRED_QUOTES', 'KLEINE_-CHEN'];
 
     console.log('correct spelling and grammar');
     for (let i = 0; i < metadata.paragraphInfo.length; i++) {
@@ -335,7 +335,7 @@ async function correctClassic(path: string) {
 
         const maximumPayload = 1000;
 
-        const originalText = metadata.paragraphInfo[i].original;
+        const originalText = formatMarkdown(metadata.paragraphInfo[i].original);
 
         let charactersToConsume = metadata.paragraphInfo[i].original.length;
         const splittedText = [] as string[];
@@ -343,7 +343,7 @@ async function correctClassic(path: string) {
 
         // chack if charactersToConsume fits in one request
         if (charactersToConsume <= maximumPayload) {
-            splittedText.push(metadata.paragraphInfo[i].original.substring(currentStart, currentStart + charactersToConsume));
+            splittedText.push(metadata.paragraphInfo[i].original);
         }
         else {
             // we need to split the text
@@ -425,7 +425,8 @@ async function correctClassic(path: string) {
                     const after = correctedText.substring(end);
                     const replacement = currentReplacement ?? '';
                     const original = correctedText.substring(start, end);
-                    if (dictionary.has(original)) {
+                    if (dictionary.has(original) && match.rule?.id == 'GERMAN_SPELLER_RULE') {
+                        // it is a spelling error but it is in the dictionary so its fine
                         return;
                     }
 

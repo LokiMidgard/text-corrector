@@ -49,7 +49,7 @@
 	import htmlWorker from 'monaco-editor/esm/vs/language/html/html.worker?worker';
 	import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker';
 
-	import { formatMarkdown, renderMarkdown } from '$lib';
+	import {  renderMarkdown } from '$lib';
 	import type { NewCorrectionMetadata } from '$lib/server/git';
 	import { trpc } from '$lib/trpc/client';
 	import { DateTime, Duration } from 'luxon';
@@ -541,7 +541,7 @@
 					if (newTextUnformated == undefined) {
 						throw new Error(`Cant find text for ${kind}`);
 					}
-					let newText = formatMarkdown(newTextUnformated);
+					let newText = newTextUnformated;
 					const oldText = this.getValueInRange(
 						this.getDecorationRange(this.getDecorationKeyOfIndex(index)!)!
 					);
@@ -881,6 +881,12 @@
 	<button
 		onclick={() => {
 			openDialog = 'commit';
+			client.getCommitData.query().then((data) => {
+				dialog_name = data.author.name;
+				dialog_email = data.author.email;
+				dialog_message = data.message;
+			});
+
 		}}>Complete Review</button
 	>
 	<div>
