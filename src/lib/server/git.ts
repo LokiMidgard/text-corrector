@@ -19,7 +19,7 @@ const dir = 'repo';
 const bot = () => ({
     name: 'Review Bot',
     email: 'noreply@review.bot',
-    timestamp: Date.now(),
+    timestamp: Math.floor(Date.now()/1000),
     timezoneOffset: new Date().getTimezoneOffset(),
 });
 
@@ -237,18 +237,6 @@ export async function setText(path: string, newText: string, commitData: Omit<gi
     type Tree = git.TreeEntry[];
     const newTree = await modifyTree(rootTree.tree, newText, pathSegments)
     const newTreeOid = await git.writeTree({ fs, dir, tree: newTree });
-    if (commitData.author.timestamp == undefined) {
-        commitData.author.timestamp = Date.now();
-    }
-    if (commitData.committer.timestamp == undefined) {
-        commitData.committer.timestamp = Date.now();
-    }
-    if (commitData.author.timezoneOffset == undefined) {
-        commitData.author.timezoneOffset = new Date().getTimezoneOffset();
-    }
-    if (commitData.committer.timezoneOffset == undefined) {
-        commitData.committer.timezoneOffset = new Date().getTimezoneOffset();
-    }
 
     const newCommit = await git.writeCommit({
         fs, dir, commit: {

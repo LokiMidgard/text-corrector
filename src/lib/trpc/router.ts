@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { observable } from '@trpc/server/observable';
 import EventEmitter from 'events';
 import { addWordToDictionary } from '$lib/server/wol';
+import { formatMarkdown } from '$lib';
 
 export const t = initTRPC.context<Context>().create();
 
@@ -103,7 +104,7 @@ export const router = t.router({
     })).query(async ({ input }) => {
         const committer = {
             ...input.commitDetails.author,
-            timestamp: Date.now(),
+            timestamp: Math.floor(Date.now()/1000),
             timezoneOffset: new Date().getTimezoneOffset()
         };
         try {
@@ -125,10 +126,10 @@ export const router = t.router({
     })).query(async ({ input }) => {
         const committer = {
             ...input.commitDetails.author,
-            timestamp: Date.now(),
+            timestamp: Math.floor(Date.now()/1000),
             timezoneOffset: new Date().getTimezoneOffset()
         };
-        await setText(input.path, input.text, { ...input.commitDetails, committer, author: committer });
+        await setText(input.path, formatMarkdown(input.text), { ...input.commitDetails, committer, author: committer });
     }),
 
 });
