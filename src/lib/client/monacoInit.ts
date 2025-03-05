@@ -1,5 +1,5 @@
-import type { editor } from 'monaco-editor';
-import { isCorrectedModel, type CorrecedModel, type ParagraphKind } from '../../routes/diff.svelte';
+import type { editor, languages } from 'monaco-editor';
+import { isCorrectedModel, type changeDiagnosticOperation, type CorrecedModel, type ModelDiagnostic, type ParagraphKind } from '../../routes/diff.svelte';
 import { renderMarkdown } from '$lib';
 
 let MonacoPromise: Promise<typeof import('monaco-editor')> | undefined;
@@ -11,6 +11,84 @@ export async function monaco_init() {
 
         MonacoPromise = import('monaco-editor');
         const Monaco = await MonacoPromise;
+
+
+
+
+        Monaco.languages.registerCodeActionProvider('markdown', {
+            provideCodeActions: function (model, range, context, token) {
+                if (!isCorrectedModel(model)) {
+                    return {
+                        actions: [],
+                        dispose: () => { }
+                    }
+                }
+
+                const diagnostics = model.getDiagnostic(range);
+
+
+
+
+                const actions = diagnostics.flatMap((diagnostic) => {
+                    const commands = [
+                        {
+                            id: 'applyDiagnosticChange',
+                            title: 'Zu Original und Wort in Wörterbuch aufnehmen',
+                            arguments: [model, diagnostic, 'original with dictionary'] as const,
+                        },
+                        ...diagnostic.alternativeReplacement.map((alternative) => ({
+                            id: 'applyDiagnosticChange',
+                            title: `Zu ${alternative} wechseln`,
+                            arguments: [model, diagnostic, { replace: alternative }] as const,
+                        } satisfies languages.Command)),
+                    ] satisfies languages.Command[];
+
+                    return commands.map((command) => ({
+                        title: command.title,
+                        diagnostics: [{
+                            startColumn: diagnostic.columnStart,
+                            startLineNumber: diagnostic.lineStart,
+                            endColumn: diagnostic.columnEnd,
+                            endLineNumber: diagnostic.lineEnd,
+                            severity: command.arguments[1].alternativeReplacement.length > 0 ? Monaco.MarkerSeverity.Warning : Monaco.MarkerSeverity.Info,
+                            message: diagnostic.message,
+                        }],
+                        command,
+                        // edit: {
+                        //     edits: [{
+                        //         resource: model.uri,
+                        //         textEdit: {
+                        //             range: {
+                        //                 startColumn: diagnostic.columnStart,
+                        //                 startLineNumber: diagnostic.lineStart,
+                        //                 endColumn: diagnostic.columnEnd,
+                        //                 endLineNumber: diagnostic.lineEnd,
+                        //             },
+                        //             text: 'Hallo'
+                        //         },
+                        //         versionId: model.getVersionId()
+                        //     }],
+                        // },
+
+                        kind: 'quickfix',
+                    }) satisfies languages.CodeAction);
+                });
+
+                return {
+                    actions,
+                    dispose: () => { }
+                };
+
+
+            },
+            resolveCodeAction: function (codeAction, token) {
+                return codeAction;
+            }
+        });
+
+        Monaco.editor.registerCommand('applyDiagnosticChange', (accessor, model: CorrecedModel, diagnosticl: ModelDiagnostic, operation: changeDiagnosticOperation) => {
+            model.changeDiagnostic(operation, diagnosticl);
+        })
 
         Monaco.languages.registerCodeLensProvider('markdown', {
             provideCodeLenses: function (model) {
@@ -143,7 +221,6 @@ export async function monaco_init() {
         });
 
         Monaco.editor.registerCommand('switchKind', (accessor, kind: ParagraphKind, decoration: editor.IModelDecoration, model: CorrecedModel) => {
-            console.log('switchKind', kind, decoration);
             const dataIndex = model.getIndexOfDecorationKey(decoration.id);
             if (dataIndex == undefined) {
                 throw new Error('Faild to get data');
@@ -209,6 +286,10 @@ export async function monaco_init() {
 
                 button.innerText = `Korrektur ${modelName} (${paragraphInfo.judgment[modelName].score})`;
                 button.classList.add('text');
+                if (paragraphInfo.judgment[modelName].text.correction == paragraphInfo.original) {
+                    button.disabled = true;
+                }
+
 
 
 
@@ -245,6 +326,9 @@ export async function monaco_init() {
                     const [newModelName, newKind, newAlternative] = currentKind;
                     if (newModelName === modelName && newKind === 'alternative' && newAlternative === alternative) {
                         subButton.classList.add('selected');
+                    }
+                    if (paragraphInfo.judgment[modelName].text.alternative[alternative] == paragraphInfo.original) {
+                        subButton.disabled = true;
                     }
                     kindChangedListener.push((changedKind) => {
                         if (typeof changedKind == 'string') {
@@ -365,12 +449,9 @@ export async function monaco_init() {
                     const atBottom = Math.round(textHolder.scrollTop + clientHeight) >= scrollHeight;
                     if (scrollUp && atTop) {
                         // do not stop propagation
-                        // console.log('at top');
                     } else if (scrollDown && atBottom) {
                         // do not stop propagation
-                        // console.log('at bottom');
                     } else {
-                        // console.log('stop');
                         e.stopPropagation();
                     }
                 } else {
@@ -378,7 +459,6 @@ export async function monaco_init() {
                 }
             }
 
-            console.log("height", overlayDom.clientHeight);
 
             // https://microsoft.github.io/monaco-editor/api/interfaces/monaco.editor.ioverlaywidget.html
             const overlayWidget = {

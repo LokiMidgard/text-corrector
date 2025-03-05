@@ -9,7 +9,14 @@ export const paragrapInfo = z.object({
         text: z.string(),
         corrections: z.array(z.object({
             message: z.string(),
+            original: z.string().optional(),
+            replacedWith: z.string().optional(),
             shortMessage: z.string(),
+            rule: z.object({
+                category:z.string(),
+                id:z.string(),
+                confidence: z.number().optional(),
+            }).optional(),
             offset: z.number(),
             length: z.number(),
             alternativeReplacement: z.array(z.string()),

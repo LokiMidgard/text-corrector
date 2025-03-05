@@ -5,6 +5,19 @@
 		undefined
 	>;
 	export type MetadataType = UpdateData & { timestamp: DateTime };
+	export type ModelDiagnostic = Exclude<
+		MetadataType['paragraphInfo'][number]['corrected'],
+		undefined
+	>['corrections'][number] & {
+		lineStart: number;
+		lineEnd: number;
+		columnStart: number;
+		columnEnd: number;
+	};
+	export type changeDiagnosticOperation =
+		| 'original'
+		| 'original with dictionary'
+		| { replace: string };
 	export type CorrecedModel = monaco.editor.ITextModel & {
 		metadata: MetadataType;
 		getDecorationKeyOfIndex(this: CorrecedModel, index: number): string | undefined;
@@ -15,6 +28,12 @@
 		getIndexOfPosition(this: CorrecedModel, type: 'line', line: number): number;
 		getIndexOfPosition(this: CorrecedModel, type: 'offset', offset: number): number;
 		handleTextEdits(this: CorrecedModel, edits: monaco.editor.IModelContentChange): void;
+		getDiagnostic(this: CorrecedModel, index: monaco.Range): ModelDiagnostic[];
+		changeDiagnostic(
+			this: CorrecedModel,
+			operation: changeDiagnosticOperation,
+			diagnostic: ModelDiagnostic
+		): void;
 	};
 	export function isCorrectedModel(obj: unknown): obj is CorrecedModel {
 		return typeof obj == 'object' && obj != undefined && 'getIndexOfDecorationKey' in obj;
@@ -31,11 +50,12 @@
 	import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker';
 
 	import { formatMarkdown, renderMarkdown } from '$lib';
-	import type { NewCorrectionMetadata, Review } from '$lib/server/git';
+	import type { NewCorrectionMetadata } from '$lib/server/git';
 	import { trpc } from '$lib/trpc/client';
 	import { DateTime, Duration } from 'luxon';
 	import type { UpdateData } from '$lib/trpc/router';
 	import { monaco_init } from '$lib/client/monacoInit';
+	import { GlobalThisWSS } from 'trpc-sveltekit/websocket';
 
 	let { path, client }: { path: string; client: ReturnType<typeof trpc> } = $props();
 
@@ -82,7 +102,7 @@
 					x.selectedText = 'original';
 					return [x.original, 'original'] as const;
 				} else if (x.selectedText == undefined) {
-					if(x.corrected) {
+					if (x.corrected) {
 						x.selectedText = 'corrected';
 						return [x.corrected.text, 'corrected'] as const;
 					}
@@ -121,10 +141,8 @@
 					return [x.original, 'original'] as const;
 				}
 			});
-			currentModel = Monaco.editor.createModel(
-				formatMarkdown(text.map(([x]) => x).join('\n')),
-				'markdown'
-			) as CorrecedModel;
+			const joindText = text.map(([x]) => x).join('\n');
+			currentModel = Monaco.editor.createModel(joindText, 'markdown') as CorrecedModel;
 
 			currentModel.metadata = {
 				messages: meta.messages,
@@ -133,6 +151,75 @@
 				time_in_ms: meta.time_in_ms,
 				timestamp: DateTime.now()
 			};
+
+			const cc = currentModel;
+
+			const offsetAndIndexToLineAndColomn = (offset: number, index: number) => {
+				const key = cc.getDecorationKeyOfIndex(index);
+				if (key == undefined) {
+					throw new Error('Failed to get key');
+				}
+				const range = cc.getDecorationRange(key);
+				if (range == undefined) {
+					throw new Error('Failed to get range');
+				}
+				const textInRange = cc.getValueInRange(range);
+				const linesInRangeToOffset = textInRange.substring(0, offset).split('\n').length - 1;
+				const column = offset - textInRange.substring(0, offset).lastIndexOf('\n');
+				return {
+					lineNumber: range.startLineNumber + linesInRangeToOffset,
+					column: column
+				};
+			};
+
+			function validateMarkdown(model: monaco.editor.ITextModel) {
+				if (!isCorrectedModel(model)) {
+					console.log('not corrected model');
+					return;
+				}
+
+				const indexes = Array.from({ length: model.metadata.paragraphInfo.length }).map(
+					(_, i) => i
+				);
+
+				const markers = indexes.flatMap((dataIndex) => {
+					const currentKind = model.getCurrentKind(dataIndex);
+					if (currentKind != 'corrected') {
+						return [];
+					}
+					const paragraphInfo = model.metadata.paragraphInfo[dataIndex];
+					if (paragraphInfo.corrected == undefined) {
+						return [];
+					}
+
+					const actions = paragraphInfo.corrected.corrections.map((entry) => {
+						const { lineNumber: startLineNumber, column: startColumn } =
+							offsetAndIndexToLineAndColomn(entry.offset, dataIndex);
+						const { lineNumber: endLineNumber, column: endColumn } = offsetAndIndexToLineAndColomn(
+							entry.offset + entry.length,
+							dataIndex
+						);
+						return {
+							startColumn,
+							startLineNumber,
+							endColumn,
+							endLineNumber,
+							message: entry.message,
+							severity:
+								entry.alternativeReplacement.length > 0
+									? Monaco!.MarkerSeverity.Error
+									: entry.replacedWith
+									? Monaco!.MarkerSeverity.Warning
+									: Monaco!.MarkerSeverity.Info
+						} satisfies monaco.editor.IMarkerData;
+					});
+					return actions;
+				});
+
+				// Apply markers to the editor
+				Monaco!.editor.setModelMarkers(model, 'markdown', markers);
+			}
+
 			let lines = 0;
 			const keys = currentModel.deltaDecorations(
 				[],
@@ -163,10 +250,182 @@
 				indexLookUp[index] = key;
 				keyLookup[key] = index;
 			}
+
 			currentModel.getIndexOfDecorationKey = function (key) {
 				return keyLookup[key];
 			};
 			currentModel.getIndexOfDecorationKey.bind(currentModel);
+
+			currentModel.changeDiagnostic = function (operation, diagnostic) {
+				const range = new Monaco!.Range(
+					diagnostic.lineStart,
+					diagnostic.columnStart,
+					diagnostic.lineEnd,
+					diagnostic.columnEnd
+				);
+				const indexes = this.getDecorationsInRange(range)
+					.map((x) => x.id)
+					.map(this.getIndexOfDecorationKey)
+					.filter((x) => x != undefined) as number[];
+				if (indexes.length == 0) {
+					console.log('no indexes found', diagnostic, range, this.getDecorationsInRange(range));
+					return;
+				} else if (indexes.length > 1) {
+					console.warn('more than one index found');
+					return;
+				}
+				const index = indexes[0];
+				if (this.getCurrentKind(index) != 'corrected') {
+					throw new Error('Not a corrected model');
+				}
+				const paragraphInfo = this.metadata.paragraphInfo[index];
+				if (paragraphInfo.corrected == undefined) {
+					throw new Error('No correction data found');
+				}
+				const corrected = paragraphInfo.corrected;
+
+				// get original correction
+				const possibleOriginal = corrected.corrections.filter(
+					(x) =>
+						x.offset == diagnostic.offset &&
+						x.length == diagnostic.length &&
+						x.message == diagnostic.message &&
+						x.rule?.category == diagnostic.rule?.category &&
+						x.rule?.id == diagnostic.rule?.id
+				);
+				if (possibleOriginal.length == 0) {
+					throw new Error('No original correction found');
+				}
+				if (possibleOriginal.length > 1) {
+					throw new Error('More then one possible match :(');
+				}
+				const [original] = possibleOriginal;
+
+				// replace the text in corrected
+				const newText =
+					operation == 'original'
+						? diagnostic.original
+						: operation == 'original with dictionary'
+							? diagnostic.original
+							: operation.replace;
+				if (newText == undefined) {
+					throw new Error('No new text found');
+				}
+
+				function replaceText(
+					corrected: Exclude<MetadataType['paragraphInfo'][number]['corrected'], undefined>,
+					diagnostic: { offset: number; length: number },
+					newText: string
+				) {
+					const currentText = corrected.text.substring(
+						diagnostic.offset,
+						diagnostic.offset + diagnostic.length
+					);
+					const textBefore = corrected.text.substring(0, diagnostic.offset);
+					const textAfter = corrected.text.substring(diagnostic.offset + diagnostic.length);
+
+					const lengthDelta = newText.length - currentText.length;
+
+					// update the diagnostic in this index
+					for (let i = 0; i < corrected.corrections.length; i++) {
+						const element = corrected.corrections[i];
+						// this should alse change the original correction
+						//we should also do not have overlaping warnings, so this should be it
+						if (element.offset > diagnostic.offset) {
+							element.offset += lengthDelta;
+						}
+					}
+
+					diagnostic.length = newText.length;
+					corrected.text = `${textBefore}${newText}${textAfter}`;
+				}
+				replaceText(corrected, original, newText);
+
+				if (operation == 'original with dictionary') {
+					// we will first add the text to the dictionary,
+					client.addWordToDictionary.query(original.original!);
+
+					// we do not wait, since the dictionray should be used when the response from
+					// languagetool is processed, not here
+					// we just remove the original and every other occuance of the text from diagnostics
+					for (let i = this.metadata.paragraphInfo.length - 1; i >= 0; i--) {
+						const element = this.metadata.paragraphInfo[i];
+						if (!element.corrected) {
+							continue;
+						}
+						for (let j = element.corrected.corrections.length - 1; j >= 0; j--) {
+							const diagnosticToCheck = element.corrected.corrections[j];
+							if (diagnosticToCheck.original == original.original) {
+								replaceText(element.corrected, diagnosticToCheck, original.original);
+
+								// remove the current diagnostic
+								element.corrected.corrections.splice(j, 1);
+							}
+						}
+						this.setKind(i, 'corrected');
+					}
+				}
+
+				// this will refresh the view and gets the new text
+				this.setKind(index, 'corrected');
+
+				// this.pushEditOperations(
+				// 	[],
+				// 	[
+				// 		{
+				// 			range,
+				// 			text: newText
+				// 		}
+				// 	],
+				// 	() => null
+				// );
+			};
+			currentModel.changeDiagnostic.bind(currentModel);
+
+			currentModel.getDiagnostic = function (range) {
+				const indexes = this.getDecorationsInRange(range)
+					.map((x) => x.id)
+					.map(this.getIndexOfDecorationKey)
+					.filter((x) => x != undefined) as number[];
+				return indexes.flatMap((index) => {
+					const paragraphInfo = this.metadata.paragraphInfo[index];
+					if (this.getCurrentKind(index) != 'corrected') {
+						return [];
+					}
+					if (paragraphInfo.corrected == undefined) {
+						throw new Error('No correction data found');
+					}
+					const { corrections } = paragraphInfo.corrected;
+					const result = corrections
+						.map((c) => {
+							const { lineNumber: lineStart, column: columnStart } = offsetAndIndexToLineAndColomn(
+								c.offset,
+								index
+							);
+							const { lineNumber: lineEnd, column: columnEnd } = offsetAndIndexToLineAndColomn(
+								c.offset + c.length,
+								index
+							);
+							return {
+								...c,
+								lineStart,
+								lineEnd,
+								columnStart,
+								columnEnd
+							};
+						})
+						// filter if range is not overlapping
+						.filter(
+							(x) =>
+								range.startLineNumber <= x.lineStart &&
+								x.lineEnd <= range.endLineNumber &&
+								(range.startLineNumber != x.lineStart || range.startColumn <= x.columnStart) &&
+								(range.endLineNumber != x.lineEnd || range.endColumn >= x.columnEnd)
+						);
+					return result;
+				});
+			};
+			currentModel.getDiagnostic.bind(currentModel);
 
 			currentModel.getDecorationKeyOfIndex = function (index) {
 				return indexLookUp[index];
@@ -178,10 +437,15 @@
 				if (change == undefined) {
 					throw new Error(`No Changes for ${index}`);
 				}
-				const current = this.metadata.paragraphInfo[index].judgment
-					? (this.metadata.paragraphInfo[index].selectedText ?? 'original')
-					: 'original';
-				return current;
+
+				const selected = this.metadata.paragraphInfo[index].selectedText;
+				if (selected) {
+					return selected;
+				}
+				if (this.metadata.paragraphInfo[index].corrected) {
+					return 'corrected';
+				}
+				return 'original';
 			};
 			currentModel.getCurrentKind.bind(currentModel);
 
@@ -315,9 +579,6 @@
 					]);
 					const rangeAfterChange = this.getDecorationRange(decorationKey);
 
-					console.log(
-						`range ${JSON.stringify(range)} rangeAfterChange ${JSON.stringify(rangeAfterChange)}`
-					);
 					if (rangeAfterChange == undefined) {
 						throw new Error(`Could not find decoration for ${decorationKey}`);
 					}
@@ -346,12 +607,14 @@
 			};
 			currentModel.setKind.bind(currentModel);
 
-			const cc = currentModel;
 			currentModel.onDidChangeContent((e) => {
 				e.changes.forEach((change) => {
 					cc.handleTextEdits(change);
 				});
 			});
+
+			validateMarkdown(currentModel);
+			currentModel.onDidChangeContent(() => validateMarkdown(cc));
 
 			if (model == 'original') {
 				originalModel = currentModel;
@@ -397,9 +660,7 @@
 				const firstModel = Object.keys(newParagrapInfo.judgment).toSorted()[0];
 				currentModel.setKind(
 					i,
-					model == 'original'
-						? 'original'
-						: (newParagrapInfo.selectedText ?? 'corrected')
+					model == 'original' ? 'original' : (newParagrapInfo.selectedText ?? 'corrected')
 				);
 			}
 		}

@@ -11,7 +11,7 @@
     font-variation-settings: normal;
     line-height: 19px;
     letter-spacing: 0px;
-    z-index: 10000000;
+    z-index: 49;
     background-color: var(--vscode-editorWidget-background);
     color: var(--vscode-editorWidget-foreground);
     border-top: 2px solid var(--vscode-inputValidation-infoBorder);
@@ -46,6 +46,10 @@
             &:active {
                 color: var(--vscode-breadcrumb-background);
                 background-color: var(--vscode-editorLink-activeForeground);
+            }
+            &:disabled {
+                color: var(--vscode-breadcrumb-background);
+                background-color: var(--vscode-inputValidation-infoBorder);
             }
         }
 
@@ -159,6 +163,10 @@ button.text{
         text-decoration-color: var(--pico-primary-underline);
         box-shadow: none;
         border: none;
+    }
+    &:disabled{
+        color: var(--pico-muted);
+        cursor: not-allowed;
     }
 }
 

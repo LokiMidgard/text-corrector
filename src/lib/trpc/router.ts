@@ -5,6 +5,7 @@ import { correctText, getCorrection, getCurrentCommitData, getText, listFiles, n
 import { z } from 'zod';
 import { observable } from '@trpc/server/observable';
 import EventEmitter from 'events';
+import { addWordToDictionary } from '$lib/server/wol';
 
 export const t = initTRPC.context<Context>().create();
 
@@ -43,6 +44,9 @@ export const router = t.router({
     getText: t.procedure.input(z.string()).query(async ({ input }) => {
         const text = await getText(input);
         return text;
+    }),
+    addWordToDictionary: t.procedure.input(z.string()).query(async ({ input }) => {
+        await addWordToDictionary(input);
     }),
     onMessage: t.procedure
         // .output(onProgress)

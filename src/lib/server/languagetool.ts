@@ -55,14 +55,14 @@ type Rule = {
     description: string;
     urls: { value?: string }[];
     issueType?: string;
-
+    confidence: number;
     category: {
         id?: string;
         name?: string;
     };
 };
 
-export async function getLanguageToolResult(text: string): Promise<LanguageToolResult> {
+export async function getLanguageToolResult(text: string, disabled_rules?:string[]): Promise<LanguageToolResult> {
     //curl -X POST --header 'Content-Type: application/x-www-form-urlencoded' --header 'Accept: application/json' -d 'data=data&language=de&enabledOnly=false' 'https://api.languagetoolplus.com/v2/check'
 
     
@@ -83,6 +83,7 @@ export async function getLanguageToolResult(text: string): Promise<LanguageToolR
             body: new URLSearchParams({
                 text: 'test',
                 language: 'de-DE',
+                enabledOnly: 'false',
             }),
             ...fetchOptions(protocol),
         });
@@ -90,7 +91,6 @@ export async function getLanguageToolResult(text: string): Promise<LanguageToolR
     };
 
     await wake({ ip, mac, isHealthy });
-
 
 
     const response = await fetch('https://api.languagetoolplus.com/v2/check', {
@@ -101,7 +101,10 @@ export async function getLanguageToolResult(text: string): Promise<LanguageToolR
         },
         body: new URLSearchParams({
             text: text,
-            language: 'de',
+            language: 'de-DE',
+            enabledOnly: 'false',
+            disabledRules: disabled_rules?.join(',') as string, // this can be undefined wich should be fine
+
         }),
         ...fetchOptions(protocol),
     });

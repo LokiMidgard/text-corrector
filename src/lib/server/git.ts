@@ -10,7 +10,7 @@ import type { BlockContent, DefinitionContent } from 'mdast';
 
 import http from 'isomorphic-git/http/web';
 import { fireUpdate } from '$lib/trpc/router';
-import type { CorrectionResult } from './wol';
+import { getDictionary, type CorrectionResult } from './wol';
 import { paragrapInfo } from './configuration';
 
 const dir = 'repo';
@@ -22,6 +22,11 @@ const bot = () => ({
     timestamp: Date.now(),
     timezoneOffset: new Date().getTimezoneOffset(),
 });
+
+export function getBotCommitDate() {
+    return bot();
+}
+
 
 
 
@@ -90,14 +95,111 @@ export async function updateRepo(githubApiToken: string, repo: string) {
                     console.log('fetched new', result.fetchHead);
                 }
                 else {
-                    await git.merge({
-                        fs,
-                        dir,
-                        ours: `refs/spellcheck/${spellcheckId}`,
-                        theirs: result.fetchHead,
-                        fastForwardOnly: true,
-                    })
-                    console.log('fetched existing', result.fetchHead);
+                    try {
+                        await git.merge({
+                            fs,
+                            dir,
+                            ours: `refs/spellcheck/${spellcheckId}`,
+                            theirs: result.fetchHead,
+                            fastForwardOnly: true,
+                        })
+                        console.log('fetched existing', result.fetchHead);
+                    } catch (e) {
+                        if (e instanceof git.Errors.FastForwardError) {
+                            // we need too merge it, we know the structure of metadate, so we should be able to merge it automatically
+                            console.log(`Try merging ${spellcheckId}`);
+
+
+                            // get local and remote metadata
+                            const localMetadata = await getCorrection(spellcheckId, 'local', 'spellcheckID');
+                            const remoteMetadata = await getCorrection(spellcheckId, 'remote', 'spellcheckID');
+                            const commonParent = await getCorrection(spellcheckId, 'common parent', 'spellcheckID');
+
+                            // merge metadata
+                            const mergedMetadataParagarps = localMetadata.paragraphInfo.map((x, i) => [x, remoteMetadata.paragraphInfo[i], commonParent.paragraphInfo[i]] as const).map(([local, remote, common]) => {
+                                if (local.original != remote.original && remote.original != common.original) {
+                                    // this should not happen, since changing the text would change the spellcheck id
+                                    throw new Error('Original text is different');
+                                }
+                                let edited: string | undefined;
+                                if (!local.edited) {
+                                    edited = remote.edited;
+                                } else if (!remote.edited) {
+                                    edited = local.edited;
+                                } else if (local.edited == common.edited) {
+                                    edited = remote.edited;
+                                } else if (remote.edited == common.edited) {
+                                    edited = local.edited;
+                                } else if (local.edited != remote.edited) {
+                                    edited = `======MERGE CONFLICT=====\n\n===LOCAL===\n\n${local.edited}\n\n===LOCAL END===\n\n===REMOTE===\n\n${remote.edited}\n\n===REMOTE END===`;
+                                } else {
+                                    edited = local.edited ?? remote.edited;
+                                }
+
+                                // for judgement deep merge and prefer the remote if two strings are different
+                                const judgment = { ...local.judgment, ...remote.judgment };
+                                for (const model in judgment) {
+                                    if (local.judgment[model] && remote.judgment[model]) {
+                                        const localText = local.judgment[model].text;
+                                        const remoteText = remote.judgment[model].text;
+                                        const commonText = common.judgment[model].text;
+                                        const mergedTextKeys = Object.keys({ ...localText.alternative, ...remoteText.alternative, ...commonText.alternative });
+                                        const mergedText = { alternative: {} } as NewCorrectionMetadata['paragraphInfo'][number]['judgment'][string]['text'];
+                                        for (const key of mergedTextKeys) {
+                                            const localValue = localText.alternative[key];
+                                            const remoteValue = remoteText.alternative[key];
+                                            const commonValue = commonText.alternative[key];
+                                            if (localValue == remoteValue || remoteValue == commonValue) {
+                                                mergedText.alternative[key] = localValue;
+                                            } else if (localValue == commonValue) {
+                                                mergedText.alternative[key] = remoteValue;
+                                            } else {
+                                                // in conflict case prefere remote
+                                                mergedText.alternative[key] = remoteValue;
+                                            }
+                                        }
+                                        // for correction prefere remote
+                                        if ((remoteText.correction != commonText.correction) || localText.correction == undefined) {
+                                            mergedText.correction = remoteText.correction;
+                                        } else {
+                                            mergedText.correction = localText.correction;
+                                        }
+
+                                        judgment[model].text = mergedText;
+                                    }
+                                }
+
+                                return {
+                                    selectedText: remote.selectedText ?? local.selectedText,
+                                    original: local.original,
+                                    edited,
+                                    judgment,
+                                    corrected: local.corrected ?? remote.corrected,
+                                } satisfies NewCorrectionMetadata['paragraphInfo'][number];
+
+                            });
+
+                            const mergedMetadata = {
+                                messages: [...remoteMetadata.messages],
+                                time_in_ms: localMetadata.time_in_ms + remoteMetadata.time_in_ms,
+                                paragraphInfo: mergedMetadataParagarps,
+                            } satisfies NewCorrectionMetadata;
+
+                            const bot = getBotCommitDate();
+
+                            await correctText(spellcheckId, mergedMetadata, {
+                                author: bot,
+                                committer: bot,
+                                message: `Merged ${spellcheckId}`,
+                            }, 'merge');
+
+
+
+                        } else {
+
+                            throw e;
+                        }
+                    }
                 }
             }
         }
@@ -123,7 +225,8 @@ export async function getCurrentCommitData() {
 }
 
 export async function setText(path: string, newText: string, commitData: Omit<git.CommitObject, 'parent' | 'tree'>) {
-    const branch = await git.resolveRef({ fs, dir, ref: 'HEAD' });
+    const branch = await git.resolveRef({ fs, dir, ref: 'HEAD', depth: 1 });
+    const branchName = branch.replace(/^ref:\s*/, '');
     const currentCommitOid = await git.resolveRef({ fs, dir, ref: branch });
 
     const currentCommit = await git.readCommit({ fs, dir, oid: currentCommitOid });
@@ -142,9 +245,14 @@ export async function setText(path: string, newText: string, commitData: Omit<gi
             tree: newTreeOid,
         }
     });
-    await git.writeRef({ fs, dir, ref: branch, value: newCommit, symbolic: false });
-
-
+    console.log(`${newCommit} ${path} on ${branch} with name ${branchName}`);
+    await git.writeRef({ fs, dir, ref: branchName, value: newCommit, symbolic: false, force: true });
+    await git.push({
+        fs,
+        dir,
+        //  force: true,
+        http,
+    });
 
     async function modifyTree(tree: git.TreeEntry[], newText: string, segments: string[]): Promise<Tree> {
         const [currentPath, ...restPathsegments] = [...segments];
@@ -229,7 +337,7 @@ export type NewCorrectionMetadata = z.infer<typeof newCorrectionParser> & {
     messages: Array<BlockContent | DefinitionContent>[];
 };
 
-export async function correctText(path: string, metadata: NewCorrectionMetadata, commitData?: { message?: string } & Omit<git.CommitObject, 'message' | 'parent' | 'tree'>) {
+export async function correctText(path: string, metadata: NewCorrectionMetadata, commitData?: { message?: string } & Omit<git.CommitObject, 'message' | 'parent' | 'tree'>, type: 'fileChange' | 'merge' = 'fileChange') {
 
     const corrected = metadata.paragraphInfo.map((paragraph) => {
         if (paragraph.selectedText == undefined) {
@@ -258,85 +366,156 @@ export async function correctText(path: string, metadata: NewCorrectionMetadata,
         throw new Error(`Faild to buidld Text from Metdata`);
     }).join('\n');
 
-    const head = await git.resolveRef({ fs, dir, ref: 'HEAD' });
-    const currentCommit = await git.resolveRef({ fs, dir, ref: head });
+    if (type == 'fileChange') {
+        const head = await git.resolveRef({ fs, dir, ref: 'HEAD' });
+        const currentCommit = await git.resolveRef({ fs, dir, ref: head });
 
-    let lastCommit = currentCommit;
+        let lastCommit = currentCommit;
 
-    const currentBlob = await git.readBlob({ fs, dir, filepath: path, oid: currentCommit });
-    const metadataBlobOid = await git.writeBlob({
-        fs, dir,
-        blob: new TextEncoder().encode(JSON.stringify(metadata, undefined, 2)),
-    });
-    const correctionBlobOid = await git.writeBlob({
-        fs, dir,
-        blob: new TextEncoder().encode(corrected),
-    });
+        const currentBlob = await git.readBlob({ fs, dir, filepath: path, oid: currentCommit });
+        const metadataBlobOid = await git.writeBlob({
+            fs, dir,
+            blob: new TextEncoder().encode(JSON.stringify(metadata, undefined, 2)),
+        });
+        const correctionBlobOid = await git.writeBlob({
+            fs, dir,
+            blob: new TextEncoder().encode(corrected),
+        });
 
-    const tree = await git.writeTree({
-        fs,
-        dir,
-        tree: [
-            {
-                type: 'blob',
-                oid: correctionBlobOid,
-                path: 'correction',
-                mode: '100644',
-            },
-            {
-                type: 'blob',
-                oid: currentBlob.oid,
-                path: 'original',
-                mode: '100644',
-            },
-            {
-                type: 'blob',
-                oid: metadataBlobOid,
-                path: 'metadata',
-                mode: '100644',
-            }
+        const tree = await git.writeTree({
+            fs,
+            dir,
+            tree: [
+                {
+                    type: 'blob',
+                    oid: correctionBlobOid,
+                    path: 'correction',
+                    mode: '100644',
+                },
+                {
+                    type: 'blob',
+                    oid: currentBlob.oid,
+                    path: 'original',
+                    mode: '100644',
+                },
+                {
+                    type: 'blob',
+                    oid: metadataBlobOid,
+                    path: 'metadata',
+                    mode: '100644',
+                }
 
-        ],
-    });
+            ],
+        });
 
 
 
-    let parent = [lastCommit];
-    if (await hasCorrection(path)) {
-        const oid = await git.resolveRef({ fs, dir, ref: `refs/spellcheck/${currentBlob.oid}` });
-        console.log('old oid for last spellcheck', oid);
-        parent = [oid];
+        let parent = [lastCommit];
+        if (await hasCorrection(path)) {
+            const oid = await git.resolveRef({ fs, dir, ref: `refs/spellcheck/${currentBlob.oid}` });
+            console.log('old oid for last spellcheck', oid);
+            parent = [oid];
+        }
+
+        const numberOfParagraphs = metadata.paragraphInfo.length;
+        const numberOfCorrectedParagraphs = metadata.paragraphInfo.map(x => Object.keys(x.judgment).length).reduce((a, b) => a + b, 0);
+
+        const actualCommitData = {
+            message: `Correct ${path} ${numberOfCorrectedParagraphs}/${numberOfParagraphs} ${metadata.time_in_ms}`,
+            ...(commitData ?? {
+                author: bot(),
+                committer: bot(),
+            }),
+            tree,
+            parent: parent,
+        };
+
+        const commit = await git.writeCommit({
+            fs,
+            dir,
+            commit: actualCommitData
+        });
+        lastCommit = commit;
+        console.log('commit', commit);
+
+        await git.writeRef({ fs, dir, ref: `refs/spellcheck/${currentBlob.oid}`, value: commit, symbolic: false, force: true });
+        fireUpdate(path, metadata);
+        await git.push({
+            fs,
+            dir,
+            force: true,
+            http, ref: `refs/spellcheck/${currentBlob.oid}`,
+        });
+    } else {
+        const originalOid = path;
+        const metadataBlobOid = await git.writeBlob({
+            fs, dir,
+            blob: new TextEncoder().encode(JSON.stringify(metadata, undefined, 2)),
+        });
+        const correctionBlobOid = await git.writeBlob({
+            fs, dir,
+            blob: new TextEncoder().encode(corrected),
+        });
+
+        const tree = await git.writeTree({
+            fs,
+            dir,
+            tree: [
+                {
+                    type: 'blob',
+                    oid: correctionBlobOid,
+                    path: 'correction',
+                    mode: '100644',
+                },
+                {
+                    type: 'blob',
+                    oid: originalOid,
+                    path: 'original',
+                    mode: '100644',
+                },
+                {
+                    type: 'blob',
+                    oid: metadataBlobOid,
+                    path: 'metadata',
+                    mode: '100644',
+                }
+
+            ],
+        });
+
+        const remoteCommit = await git.resolveRef({ fs, dir, ref: `remotes/origin/refs/spellcheck/${originalOid}` });
+        const localCommit = await git.resolveRef({ fs, dir, ref: `refs/spellcheck/${originalOid}` });
+
+        const parent = [remoteCommit, localCommit];
+
+        const actualCommitData = {
+            message: `Merge ${path}`,
+            ...(commitData ?? {
+                author: bot(),
+                committer: bot(),
+            }),
+            tree,
+            parent: parent,
+        };
+
+        const commit = await git.writeCommit({
+            fs,
+            dir,
+            commit: actualCommitData
+        });
+        console.log('commit', commit);
+
+        await git.writeRef({ fs, dir, ref: `refs/spellcheck/${originalOid}`, value: commit, symbolic: false, force: true });
+        fireUpdate(path, metadata);
+        await git.push({
+            fs,
+            dir,
+            force: true,
+            http, ref: `refs/spellcheck/${originalOid}`,
+        });
+
+
     }
-
-    const numberOfParagraphs = metadata.paragraphInfo.length;
-    const numberOfCorrectedParagraphs = metadata.paragraphInfo.map(x => Object.keys(x.judgment).length).reduce((a, b) => a + b, 0);
-
-    const actualCommitData = {
-        message: `Correct ${path} ${numberOfCorrectedParagraphs}/${numberOfParagraphs} ${metadata.time_in_ms}`,
-        ...(commitData ?? {
-            author: bot(),
-            committer: bot(),
-        }),
-        tree,
-        parent: parent,
-    };
-
-    const commit = await git.writeCommit({
-        fs,
-        dir,
-        commit: actualCommitData
-    });
-    lastCommit = commit;
-    console.log('commit', commit);
-
-    await git.writeRef({ fs, dir, ref: `refs/spellcheck/${currentBlob.oid}`, value: commit, symbolic: false, force: true });
-    fireUpdate(path, metadata);
-    await git.push({
-        fs,
-        dir,
-        force: true,
-        http, ref: `refs/spellcheck/${currentBlob.oid}`,
-    });
 }
 
 
@@ -370,11 +549,30 @@ export async function tryGetCorrection(path: string) {
         return null;
     }
 }
-export async function getCorrection(path: string): Promise<NewCorrectionMetadata> {
-    const head = await git.resolveRef({ fs, dir, ref: 'HEAD' });
-    const currentBlob = await git.readBlob({ fs, dir, filepath: path, oid: head });
-    const oid = currentBlob.oid;
-    const correctionOid = await git.resolveRef({ fs, dir, ref: `refs/spellcheck/${oid}` });
+export async function getCorrection(path: string, type: 'local' | 'remote' | 'common parent' = 'local', pathType: 'filePath' | 'spellcheckID' = 'filePath'): Promise<NewCorrectionMetadata> {
+    let oid: string;
+    if (pathType == 'spellcheckID') {
+        oid = path;
+    }
+    else {
+        const head = await git.resolveRef({ fs, dir, ref: 'HEAD' });
+        const currentBlob = await git.readBlob({ fs, dir, filepath: path, oid: head });
+        oid = currentBlob.oid;
+    }
+    let correctionOid: string;
+    if (type == 'common parent') {
+        const localOid = await git.resolveRef({ fs, dir, ref: `refs/spellcheck/${oid}` });
+        const remoteOid = await git.resolveRef({ fs, dir, ref: `remotes/origin/refs/spellcheck/${oid}` });
+        const [commonParentOid] = await git.findMergeBase({ fs, dir, oids: [localOid, remoteOid] }) as string[];
+        correctionOid = commonParentOid;
+
+    } else {
+        correctionOid = await git.resolveRef({ fs, dir, ref: type == 'remote' ? `remotes/origin/refs/spellcheck/${oid}` : `refs/spellcheck/${oid}` });
+    }
+
+    if (!correctionOid) {
+        throw new Error(`Failed to find correction ${type} ${type == 'common parent' ? 'common parent' : ''} for ${path}`);
+    }
 
 
     const decoder = new TextDecoder();
@@ -434,9 +632,35 @@ export async function getCorrection(path: string): Promise<NewCorrectionMetadata
         } else {
             const isNew = newCorrectionParser.safeParse(metadataObj);
             if (isNew.success) {
-                return isNew.data
+                const data = isNew.data
+                // now lets check if corrections have words that were added to
+                // the dictionary after the correction was made
+                const words = await getDictionary();
+                data.paragraphInfo.forEach(paragraph => {
+                    if (paragraph.corrected) {
+                        paragraph.corrected.corrections = paragraph.corrected.corrections.sort((a, b) => a.offset - b.offset);
+                        for (let i = paragraph.corrected.corrections.length - 1; i >= 0; i--) {
+                            const correction = paragraph.corrected.corrections[i];
+                            if (correction.original && words.has(correction.original)) {
+                                console.log(`Removing correction ${correction.original} from ${path}`);
+                                const textBefore = paragraph.corrected.text.substring(0, correction.offset);
+                                const textAfter = paragraph.corrected.text.substring(correction.offset + correction.length);
+                                const replacedText = paragraph.corrected.text.substring(correction.offset, correction.offset + correction.length);
+                                const newText = correction.original!;
+                                const deltaLength = newText.length - replacedText.length;
+                                paragraph.corrected.text = `${textBefore}${newText}${textAfter}`;
+                                // correct offset of all following corrections
+                                for (let j = i + 1; j < paragraph.corrected.corrections.length; j++) {
+                                    paragraph.corrected.corrections[j].offset += deltaLength;
+                                }
+                                // remove correction 
+                                paragraph.corrected.corrections.splice(i, 1);
+                            }
+                        }
+                    }
+                });
+                return data;
             } else {
-                debugger;
                 throw new Error(`Faild to read Object oldSchema ${JSON.stringify(isOld.error.flatten(), undefined, 2)}\n\n newSchema ${JSON.stringify(isNew.error.format(), undefined, 2)}`);
             }
         }
@@ -445,61 +669,6 @@ export async function getCorrection(path: string): Promise<NewCorrectionMetadata
         throw new Error('Failed to get orignal or correction');
 }
 
-export async function addReview(review: Omit<Review, 'id'> & Partial<Pick<Review, 'id'>>, forFile: string) {
-
-    const oidOfReviewedFile = await getBlobOfPath(forFile);
-
-    const reviewBlobData = await git.writeBlob({
-        fs,
-        dir,
-        blob: new TextEncoder().encode(JSON.stringify(review)),
-    });
-
-    const tree = await git.writeTree({
-        fs,
-        dir,
-        tree: [
-            {
-                type: 'blob',
-                oid: reviewBlobData,
-                path: 'review.json',
-                mode: '100644',
-            },
-            {
-                type: 'blob',
-                oid: oidOfReviewedFile,
-                path: 'target',
-                mode: '100644',
-            },
-        ],
-    });
-    const head = await git.resolveRef({ fs, dir, ref: 'HEAD' });
-
-    const bot = {
-        name: 'Review Bot',
-        email: 'noreply@review.bot',
-        timestamp: Date.now(),
-        timezoneOffset: new Date().getTimezoneOffset(),
-    };
-
-    const commit = await git.writeCommit({
-        fs,
-        dir,
-        commit: {
-            message: 'Add review',
-            tree,
-            parent: [head],
-            author: bot,
-            committer: bot,
-        }
-    });
-    const uuid = review.id ?? uuidv4();
-    if (uuid.length === 0) {
-        throw new Error('Review id cannot be empty');
-    }
-    await git.writeRef({ fs, dir, ref: `refs/reviews/${uuid}`, value: commit, symbolic: false });
-    return uuid;
-}
 
 export async function getReview(id: string) {
     const oid = await git.resolveRef({ fs, dir, ref: `refs/reviews/${id}` });
@@ -509,86 +678,6 @@ export async function getReview(id: string) {
 }
 
 
-async function getBlobOfPath(path: string) {
-    const oid = await git.resolveRef({ fs, dir, ref: 'HEAD' });
-
-    //TODO: we only need the oid, not the whole blob
-    const resultOid = await resolveFilepathToOid({
-        fs,
-        oid,
-        filepath: path,
-    });
-    return resultOid;
-}
-
-async function resolveFilepathToOid({ fs, oid, filepath }: { fs: git.CallbackFsClient | git.PromiseFsClient, oid: string, filepath: string }) {
-    if (filepath.startsWith('/')) {
-        if (filepath.endsWith('/')) {
-            throw new Error('Path cannot start with a leading slash character nor end with a trailing slash character')
-        } else {
-            throw new Error('Path cannot start with a leading slash character')
-        }
-    } else if (filepath.endsWith('/')) {
-        throw new Error('Path cannot end with a trailing slash character')
-    }
-    const { tree, oid: treeOid } = await git.readTree({ fs, gitdir: dir, oid });
-    if (filepath === '') {
-        return treeOid;
-    } else {
-        const resultOid = await getOidOfPath({
-            fs,
-            gitdir: dir,
-            tree,
-            path: filepath,
-            oid,
-        });
-        return resultOid;
-    }
-
-    async function getOidOfPath({
-        fs,
-        gitdir,
-        tree,
-        oid,
-        path,
-    }: {
-        fs: git.CallbackFsClient | git.PromiseFsClient;
-        gitdir: string;
-        tree: git.TreeEntry[];
-        path: string
-        oid: string;
-    }
-
-    ) {
-        // get first part of path and rest
-        const firstDelimiterPosition = path.indexOf('/');
-        const name = path.substring(0, firstDelimiterPosition);
-        const rest = path.substring(firstDelimiterPosition + 1);
-
-        for (const entry of tree) {
-            if (entry.path === name) {
-                if (rest === '') {
-                    return entry.oid
-                } else {
-
-                    const { oid, tree } = await git.readTree({
-                        fs,
-                        gitdir,
-                        oid: entry.oid,
-                    });
-                    return getOidOfPath({
-                        fs,
-                        gitdir,
-                        tree,
-                        path: rest,
-                        oid,
-                    })
-                }
-            }
-        }
-        throw new Error(`file or directory found at "${oid}:${filepath}"`)
-    }
-}
 
 export async function pullRepo(dir: string, auth?: { username: string, password: string }) {
     try {

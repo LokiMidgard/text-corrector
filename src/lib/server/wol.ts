@@ -59,6 +59,9 @@ ${JSON.stringify(zodToJsonSchema(CorrectionResultParser), undefined, 2)}
 
 `
 
+
+const dictionaryLocation = '.vscode/spellright.dict';
+
 const CorrectionInputParser = z.object({
     context: z.object({
         storyContext: z.string(),
@@ -245,10 +248,47 @@ export async function checkRepo(): Promise<never> {
             await new Promise((resolve) => setTimeout(resolve, 1000 * 30 * 2));
 
         }
-
     }
-
 };
+
+export async function addWordToDictionary(params: string) {
+    const currentDictionary = await git.getText(dictionaryLocation);
+    const spited = currentDictionary.split('\n').map(x => x.trim()).filter(x => x.length > 0);
+    if (spited.includes(params)) {
+        console.log(`Word ${params} already in dictionary`);
+        return;
+    }
+    const bot = git.getBotCommitDate();
+    await git.setText(dictionaryLocation, `${spited.join('\n')}\n${params}\n`, {
+        author: bot,
+        committer: bot,
+        message: 'Update dictionary'
+    })
+    console.log(`Word ${params} added to dictionary`);
+}
+
+export async function removeWordFromDictionary(params: string) {
+    const currentDictionary = await git.getText(dictionaryLocation);
+    const newDictionary = currentDictionary.split('\n').map(x => x.trim()).filter(x => x != params).join('\n');
+    if (newDictionary == currentDictionary) {
+        return;
+    }
+    const bot = git.getBotCommitDate();
+    await git.setText(dictionaryLocation, newDictionary, {
+        author: bot,
+        committer: bot,
+        message: 'Update dictionary'
+    });
+}
+
+export async function getDictionary() {
+    const dictionary = new Set((await git.getText(dictionaryLocation)).split('\n').map(x => x.trim().toLowerCase()).filter(x => x.length > 0));
+    return {
+        has: (word: string) => dictionary.has(word.toLowerCase())
+    };
+}
+
+
 
 async function correctClassic(path: string) {
 
@@ -281,12 +321,17 @@ async function correctClassic(path: string) {
     // need to get ast from original so the paragraph count is correct
     fireUpdate(path, metadata);
 
+    const dictionary = await getDictionary();
+
+    const disabled_rules = ['AUSLASSUNGSPUNKTE_LEERZEICHEN', 'DE_UNPAIRED_QUOTES','KLEINE_-CHEN'];
+
     console.log('correct spelling and grammar');
     for (let i = 0; i < metadata.paragraphInfo.length; i++) {
         if (metadata.paragraphInfo[i].corrected !== undefined) {
             // we already corrected this part
             continue;
         }
+        console.log(`Process Part ${i} of ${metadata.paragraphInfo.length}`);
 
         const maximumPayload = 1000;
 
@@ -341,13 +386,15 @@ async function correctClassic(path: string) {
 
         const semaphore = new Semaphore(1);
 
-        const [correctedText, entryes] = (await Promise.all(splittedText.map(async text => {
+
+
+        const [correctedText, entrys] = (await Promise.all(splittedText.map(async text => {
 
 
             let result: LanguageToolResult;
             const toRelease = await semaphore.acquire();
             try {
-                result = await getLanguageToolResult(text);
+                result = await getLanguageToolResult(text, disabled_rules);
             } finally {
                 toRelease();
             }
@@ -361,15 +408,27 @@ async function correctClassic(path: string) {
             result.matches.sort((a, b) => (b.offset + b.length) - (a.offset + a.length)).forEach(match => {
                 if (match.offset + match.length > furthestOffsetChange) {
                     // we already changed this part
+                    console.warn(`Skip ${match.message} with offset ${match.offset} and length ${match.length} and replacement:\n\t${match.replacements.map(x => x.value).join('\n\t')}`);
                     return;
                 }
+
+
                 const start = match.offset;
                 const end = match.offset + match.length;
-                if (match.replacements.filter(x => x.value != undefined).length == 1) {
+                if (match.replacements.filter(x => x.value != undefined).length > 0) {
                     // we can just replace it
-                    const before = text.substring(0, start);
-                    const after = text.substring(end);
-                    const replacement = match.replacements[0].value ?? '';
+
+
+                    const [currentReplacement, ...alternativeReplacement] = match.replacements.filter(x => x.value != undefined).map(x => x.value ?? '');
+
+                    const before = correctedText.substring(0, start);
+                    const after = correctedText.substring(end);
+                    const replacement = currentReplacement ?? '';
+                    const original = correctedText.substring(start, end);
+                    if (dictionary.has(original)) {
+                        return;
+                    }
+
                     correctedText = `${before}${replacement}${after}`;
                     furthestOffsetChange = Math.min(furthestOffsetChange, start);
 
@@ -382,39 +441,38 @@ async function correctClassic(path: string) {
 
                     entrys.push({
                         offset: start,
+                        length: replacement.length,
+                        message: `${match.shortMessage}
+${match.message}
+
+Original war: ${original}
+
+RuleID: ${match.rule?.id}
+RuleDescription: ${match.rule?.description}
+RuleCategory: ${match.rule?.category.name}
+RuleConfidence: ${match.rule?.confidence}
+`,
+                        original,
+                        rule: match.rule ? {
+                            category: match.rule.category.id ?? '',
+                            id: match.rule.id,
+                            confidence: match.rule.confidence,
+                        } : undefined,
+                        replacedWith: replacement,
+                        shortMessage: match.shortMessage,
+                        alternativeReplacement,
+                    });
+                } else {
+                    entrys.push({
+                        offset: start,
                         length: match.length,
                         message: match.message,
+                        original: '',
                         shortMessage: match.shortMessage,
                         alternativeReplacement: [],
                     });
                 }
             });
-
-            let secondRun: LanguageToolResult
-            const toRelease2 = await semaphore.acquire();
-            try {
-                secondRun = await getLanguageToolResult(correctedText);
-            } finally {
-                toRelease2();
-            }
-
-            const anyreplacmentsLef = secondRun.matches.some(match => match.replacements.filter(x => x.value != undefined).length == 1);
-            if (anyreplacmentsLef) {
-                // we have still some replacments left
-                console.warn(`Still replacments left in ${path} at ${i}`);
-                console.warn(secondRun.matches.filter(match => match.replacements.filter(x => x.value).length == 1).map(match => match.message));
-            }
-
-            entrys.push(...secondRun.matches.map(match => {
-                return {
-                    offset: match.offset,
-                    length: match.length,
-                    message: match.message,
-                    shortMessage: match.shortMessage,
-                    alternativeReplacement: match.replacements.map(r => r.value ?? ''),
-                } satisfies Exclude<NewParagrapInfo['corrected'], undefined>['corrections'][number];
-            }
-            ));
 
             return {
                 text: formatMarkdown(correctedText),
@@ -422,14 +480,14 @@ async function correctClassic(path: string) {
             };
         }))).reduce((p, c) => {
             const [text, entrys] = p;
-            const currentTextLength = text.length;
+            const currentTextLength = Math.max(0, text.length - 1);
 
             return [text + c.text, [...entrys, ...c.corrections.map(x => ({ ...x, offset: x.offset + currentTextLength }))]] as const;
         }
             , ['', []] as readonly [string, readonly entry[]]);
         metadata.paragraphInfo[i].corrected = {
             text: formatMarkdown(correctedText),
-            corrections: [...entryes],
+            corrections: [...entrys],
         };
     }
     await git.correctText(path, metadata);
