@@ -560,6 +560,7 @@ export async function monaco_init() {
                     if (zoneId)
                         changeAccessor.removeZone(zoneId);
                 });
+                editor.removeOverlayWidget(overlayWidget);
                 overlayDom.remove();
             }
 
