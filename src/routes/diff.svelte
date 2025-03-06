@@ -816,14 +816,6 @@
 
 		const meta = JSON.parse(JSON.stringify(correctionModel.metadata)) as MetadataType;
 
-		// HACK to ensure that the model is set
-		// old version of backend did not yet set the model
-		for (const element of meta.paragraphInfo) {
-			if (element.judgment) {
-				element.judgment.model = element.judgment.model ?? 'unknown';
-			}
-		}
-
 		console.log('store', text);
 		if (openDialog == 'commit') {
 			await client.finishText.query({
