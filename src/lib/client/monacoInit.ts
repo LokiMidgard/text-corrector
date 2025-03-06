@@ -405,7 +405,7 @@ export async function monaco_init() {
             moreDetails.appendChild(summary);
             const details = document.createElement('div');
             moreDetails.appendChild(details);
-            overlayDom.appendChild(moreDetails);
+            textHolder.appendChild(moreDetails);
 
             kindChangedListener.push((changedKind) => {
                 if (typeof changedKind == 'string') {
