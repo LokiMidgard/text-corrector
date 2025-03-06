@@ -49,7 +49,7 @@
 	import htmlWorker from 'monaco-editor/esm/vs/language/html/html.worker?worker';
 	import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker';
 
-	import {  renderMarkdown } from '$lib';
+	import { renderMarkdown } from '$lib';
 	import type { NewCorrectionMetadata } from '$lib/server/git';
 	import { trpc } from '$lib/trpc/client';
 	import { DateTime, Duration } from 'luxon';
@@ -209,8 +209,8 @@
 								entry.alternativeReplacement.length > 0
 									? Monaco!.MarkerSeverity.Error
 									: entry.replacedWith
-									? Monaco!.MarkerSeverity.Warning
-									: Monaco!.MarkerSeverity.Info
+										? Monaco!.MarkerSeverity.Warning
+										: Monaco!.MarkerSeverity.Info
 						} satisfies monaco.editor.IMarkerData;
 					});
 					return actions;
@@ -314,7 +314,10 @@
 
 				function replaceText(
 					corrected: Exclude<MetadataType['paragraphInfo'][number]['corrected'], undefined>,
-					diagnostic: { offset: number; length: number },
+					diagnostic: Exclude<
+						MetadataType['paragraphInfo'][number]['corrected'],
+						undefined
+					>['corrections'][number],
 					newText: string
 				) {
 					const currentText = corrected.text.substring(
@@ -326,13 +329,31 @@
 
 					const lengthDelta = newText.length - currentText.length;
 
+					if (diagnostic.replacedWith != undefined && diagnostic.replacedWith != newText) {
+						// we change the used text so we need to add it back to alternatives
+						diagnostic.alternativeReplacement.push(diagnostic.replacedWith);
+					}
+					if (diagnostic.alternativeReplacement.includes(newText)) {
+						// we do not want to have the current text in the alternatives
+						diagnostic.alternativeReplacement = diagnostic.alternativeReplacement.filter(
+							(x) => x != newText
+						);
+					}
+					if (diagnostic.original == newText) {
+						diagnostic.replacedWith = undefined;
+					} else {
+						diagnostic.replacedWith = newText;
+					}
+
 					// update the diagnostic in this index
-					for (let i = 0; i < corrected.corrections.length; i++) {
-						const element = corrected.corrections[i];
-						// this should alse change the original correction
-						//we should also do not have overlaping warnings, so this should be it
-						if (element.offset > diagnostic.offset) {
-							element.offset += lengthDelta;
+					if (lengthDelta != 0) {
+						for (let i = 0; i < corrected.corrections.length; i++) {
+							const element = corrected.corrections[i];
+							// this should alse change the original correction
+							//we should also do not have overlaping warnings, so this should be it
+							if (element.offset > diagnostic.offset) {
+								element.offset += lengthDelta;
+							}
 						}
 					}
 
@@ -886,7 +907,6 @@
 				dialog_email = data.author.email;
 				dialog_message = data.message;
 			});
-
 		}}>Complete Review</button
 	>
 	<div>

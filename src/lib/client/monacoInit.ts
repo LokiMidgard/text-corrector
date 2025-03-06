@@ -31,14 +31,19 @@ export async function monaco_init() {
 
                 const actions = diagnostics.flatMap((diagnostic) => {
                     const commands = [
-                        {
+                        ...[{
                             id: 'applyDiagnosticChange',
-                            title: 'Zu Original und Wort in Wörterbuch aufnehmen',
+                            title: 'in Wörterbuch aufnehmen',
                             arguments: [model, diagnostic, 'original with dictionary'] as const,
-                        },
+                        } satisfies languages.Command].filter(() => diagnostic.rule?.id == "GERMAN_SPELLER_RULE"),
+                        ...[{
+                            id: 'applyDiagnosticChange',
+                            title: 'Original wiederherstellen',
+                            arguments: [model, diagnostic, 'original'] as const,
+                        } satisfies languages.Command].filter(() => diagnostic.replacedWith != undefined),
                         ...diagnostic.alternativeReplacement.map((alternative) => ({
                             id: 'applyDiagnosticChange',
-                            title: `Zu ${alternative} wechseln`,
+                            title: alternative,
                             arguments: [model, diagnostic, { replace: alternative }] as const,
                         } satisfies languages.Command)),
                     ] satisfies languages.Command[];
