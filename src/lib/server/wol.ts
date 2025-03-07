@@ -500,16 +500,34 @@ RuleConfidence: ${match.rule?.confidence}
 
 async function correct(path: string) {
 
+    const createNewParagraphs = async () => {
+        const previousCorrection = await git.tryGetCorrection(path, 1);
+
+        return paragraphsWithPrefixs(await git.getText(path)).map((v) => {
+            const original = formatMarkdown(v.text);
+            const existingOld = previousCorrection?.paragraphInfo.filter(x => x.original == original)[0];
+            if (existingOld) {
+                return {
+                    ...existingOld,
+                    edited: undefined,
+                    selectedText: undefined,
+                }
+            }
+            else {
+                return {
+                    original,
+                    judgment: {},
+                };
+            }
+
+        });
+    };
+
+
     const metadata: git.NewCorrectionMetadata = (await git.tryGetCorrection(path)) ?? {
         time_in_ms: 0,
         messages: [],
-        paragraphInfo: paragraphsWithPrefixs(await git.getText(path)).map((v) => {
-            return {
-                original: formatMarkdown(v.text),
-                judgment: {},
-            };
-
-        }),
+        paragraphInfo: await createNewParagraphs()
     };
     console.log(`Correct ${path} with ${metadata.paragraphInfo.length} paragraphs and [${usedModels.join(', ')}] models`);
     if (metadata.paragraphInfo.every(v => {

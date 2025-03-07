@@ -19,7 +19,7 @@ const dir = 'repo';
 const bot = () => ({
     name: 'Review Bot',
     email: 'noreply@review.bot',
-    timestamp: Math.floor(Date.now()/1000),
+    timestamp: Math.floor(Date.now() / 1000),
     timezoneOffset: new Date().getTimezoneOffset(),
 });
 
@@ -531,10 +531,20 @@ export async function listFiles(branch: string = 'HEAD') {
 }
 
 
-export async function hasCorrection(path: string) {
+export async function hasCorrection(path: string, depth: number = 0) {
     const head = await git.resolveRef({ fs, dir, ref: 'HEAD' });
-    const currentBlob = await git.readBlob({ fs, dir, filepath: path, oid: head });
 
+    let currentCommit = head;
+    for (let i = 0; i < depth; i++) {
+        // get the commit before the current commit
+        const commit = await git.readCommit({ fs, dir, oid: currentCommit });
+        if (commit.commit.parent.length == 0) {
+            return false;
+        }
+        currentCommit = commit.commit.parent[0];
+    }
+
+    const currentBlob = await git.readBlob({ fs, dir, filepath: path, oid: currentCommit });
     const oid = currentBlob.oid;
     try {
         await git.resolveRef({ fs, dir, ref: `refs/spellcheck/${oid}` });
@@ -543,14 +553,14 @@ export async function hasCorrection(path: string) {
         return false;
     }
 }
-export async function tryGetCorrection(path: string) {
-    if (await hasCorrection(path)) {
-        return await getCorrection(path);
+export async function tryGetCorrection(path: string, depth: number = 0) {
+    if (await hasCorrection(path, depth)) {
+        return await getCorrection(path, undefined, undefined, depth);
     } else {
         return null;
     }
 }
-export async function getCorrection(path: string, type: 'local' | 'remote' | 'common parent' = 'local', pathType: 'filePath' | 'spellcheckID' = 'filePath'): Promise<NewCorrectionMetadata> {
+export async function getCorrection(path: string, type: 'local' | 'remote' | 'common parent' = 'local', pathType: 'filePath' | 'spellcheckID' = 'filePath', depth: number = 0): Promise<NewCorrectionMetadata> {
     let oid: string;
     if (pathType == 'spellcheckID') {
         oid = path;
@@ -575,6 +585,13 @@ export async function getCorrection(path: string, type: 'local' | 'remote' | 'co
         throw new Error(`Failed to find correction ${type} ${type == 'common parent' ? 'common parent' : ''} for ${path}`);
     }
 
+    for (let i = 0; i < depth; i++) {
+        const commit = await git.readCommit({ fs, dir, oid: correctionOid });
+        if (commit.commit.parent.length == 0) {
+            throw new Error("No perent fonud");
+        }
+        correctionOid = commit.commit.parent[0];
+    }
 
     const decoder = new TextDecoder();
     const decode = (data: { blob: Uint8Array<ArrayBufferLike> } | undefined | null) => {
