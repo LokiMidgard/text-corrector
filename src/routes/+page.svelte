@@ -31,8 +31,38 @@
 	let fileList: fileListType = $state([]);
 	let { root: tree, lookup } = $derived(convertPathsToTree(fileList));
 
+	let configuredModels: { modelNames: string[]; styles: string[] } = $state({
+		modelNames: [],
+		styles: []
+	});
+
 	let connectedToBackend = $state(false);
 	let currentState: undefined | (UpdateData & { timestamp: DateTime }) = $state();
+
+	let totelModelWork = $derived(
+		(currentState?.paragraphInfo.length ?? 0) *
+			(configuredModels.modelNames.length * (configuredModels.styles.length + 1) + 1)
+	);
+	let stiles = $derived(new Set(...configuredModels.styles));
+	let modelNames = $derived(new Set(...configuredModels.modelNames));
+	let calculatedModelWork = $derived(
+		currentState?.paragraphInfo
+			.map(
+				(x) =>
+					Object.entries(x.judgment)
+						.filter(([key]) => modelNames.has(key))
+						.map(
+							([, x]) =>
+								// stiele
+								Object.entries(x.text.alternative)?.filter(([key]) => stiles.has(key)).length +
+								// model corrections
+								(x.text.correction == undefined ? 0 : 1)
+						)
+						.reduce((p, c) => p + c, 0) + (x.corrected == undefined ? 0 : 1)
+				//
+			)
+			.reduce((p, c) => p + c, 0)
+	);
 
 	let now = $state(DateTime.now());
 	setInterval(() => {
@@ -42,6 +72,12 @@
 	onMount(() => {
 		client.listFiles.query().then((files) => {
 			fileList = files;
+		});
+
+		client.onModelChange.subscribe(undefined, {
+			onData(message) {
+				configuredModels = message;
+			}
 		});
 
 		client.onMessage.subscribe(undefined, {
@@ -62,9 +98,9 @@
 			onData(message) {
 				currentState = { ...message, timestamp: DateTime.now() };
 				// set correction for newly started work
-
-				if (lookup[message.path] && !lookup[message.path].hasCorrection) {
-					lookup[message.path].hasCorrection = true;
+				const file = fileList.filter((x) => x.path == message.path)[0];
+				if (file && !file.hasCorrection) {
+					file.hasCorrection = true;
 				}
 			}
 		});
@@ -154,49 +190,49 @@
 <header>
 	<div>
 		{#if currentState}
-			<div>Working on {currentState.path}</div>
 			<div>
-				Progress {currentState.paragraphInfo.reduce(
-					(p, c) => p + Object.keys(c.judgment).length,
-					0
-				)}/{currentState.paragraphInfo.length}
+				<label>
+					{currentState.path}
+					{calculatedModelWork}/{totelModelWork}
+					{#if !connectedToBackend}
+						<small>
+							runtime {Duration.fromDurationLike({
+								milliseconds: currentState.time_in_ms,
+								seconds: 0,
+								minutes: 0,
+								hours: 0
+							})
+								.normalize()
+								.toHuman()} waiting for backend to come back.
+						</small>
+					{:else if currentState.paragraphInfo.filter((x) => x.judgment).length == currentState.paragraphInfo.length}
+						<small>
+							runtime {Duration.fromDurationLike({
+								milliseconds: currentState.time_in_ms,
+								seconds: 0,
+								minutes: 0,
+								hours: 0
+							})
+								.normalize()
+								.toHuman()}
+						</small>
+					{:else}
+						<small>
+							runtime {now
+								.diff(currentState.timestamp)
+								.plus({ milliseconds: currentState.time_in_ms, seconds: 0, minutes: 0, hours: 0 })
+								.normalize()
+								.toHuman({
+									useGrouping: true,
+									listStyle: 'short',
+									notation: 'compact',
+									compactDisplay: 'short'
+								})}
+						</small>
+					{/if}
+					<progress value={calculatedModelWork} max={totelModelWork} />
+				</label>
 			</div>
-			{#if !connectedToBackend}
-				<div>
-					runtime {Duration.fromDurationLike({
-						milliseconds: currentState.time_in_ms,
-						seconds: 0,
-						minutes: 0,
-						hours: 0
-					})
-						.normalize()
-						.toHuman()} waiting for backend to come back.
-				</div>
-			{:else if currentState.paragraphInfo.filter((x) => x.judgment).length == currentState.paragraphInfo.length}
-				<div>
-					runtime {Duration.fromDurationLike({
-						milliseconds: currentState.time_in_ms,
-						seconds: 0,
-						minutes: 0,
-						hours: 0
-					})
-						.normalize()
-						.toHuman()}
-				</div>
-			{:else}
-				<div>
-					runtime {now
-						.diff(currentState.timestamp)
-						.plus({ milliseconds: currentState.time_in_ms, seconds: 0, minutes: 0, hours: 0 })
-						.normalize()
-						.toHuman({
-							useGrouping: true,
-							listStyle: 'short',
-							notation: 'compact',
-							compactDisplay: 'short'
-						})}
-				</div>
-			{/if}
 		{/if}
 	</div>
 </header>

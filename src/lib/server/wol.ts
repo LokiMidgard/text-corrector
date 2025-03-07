@@ -8,7 +8,7 @@ import { z } from 'zod';
 import type { BlockContent, DefinitionContent, Paragraph, RootContent } from 'mdast';
 
 import * as git from '$lib/server/git'
-import { fireUpdate } from '$lib/trpc/router';
+import { fireUpdate, setModelConiguration } from '$lib/trpc/router';
 import { zodToJsonSchema } from "zod-to-json-schema";
 
 import { formatMarkdown, transformFromAst, transformToAst } from '$lib';
@@ -166,7 +166,6 @@ const usedModels: (keyof typeof model_properties)[] = (env.MODEL?.split('|') ?? 
 
 
 
-
 async function createModels() {
 
     console.log(`wait for server to be healthy. call ${protocol}://${host}:${port}/api/version`);
@@ -217,6 +216,10 @@ export async function checkRepo(): Promise<never> {
             const cache = {};
 
             await git.updateRepo(githubApiToken, repo, cache);
+
+            setModelConiguration({ modelNames: usedModels, styles: Object.keys(desiredStyles) });
+
+
             console.log('Repo updated');
 
             let workDone = false;
