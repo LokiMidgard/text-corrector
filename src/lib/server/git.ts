@@ -19,7 +19,7 @@ const dir = 'repo';
 const bot = () => ({
     name: 'Review Bot',
     email: 'noreply@review.bot',
-    timestamp: Math.floor(Date.now()/1000),
+    timestamp: Math.floor(Date.now() / 1000),
     timezoneOffset: new Date().getTimezoneOffset(),
 });
 
@@ -30,7 +30,7 @@ export function getBotCommitDate() {
 
 
 
-export async function updateRepo(githubApiToken: string, repo: string) {
+export async function updateRepo(githubApiToken: string, repo: string, cache: object = {}) {
     console.log('Updating repository');
     try {
 
@@ -64,6 +64,7 @@ export async function updateRepo(githubApiToken: string, repo: string) {
                 author: bot(),
                 committer: bot(),
                 url: clone_url.href,
+                cache,
             });
             console.log('Repository updated successfully');
         } else {
@@ -73,6 +74,7 @@ export async function updateRepo(githubApiToken: string, repo: string) {
                     http,
                     dir,
                     url: clone_url.href,
+                    cache,
                 });
                 console.log('Repository cloned successfully');
             } catch (error) {
@@ -87,6 +89,7 @@ export async function updateRepo(githubApiToken: string, repo: string) {
                 http,
                 dir,
                 ref: ref.ref,
+                cache,
             })
             if (result.fetchHead) {
                 const spellcheckId = ref.ref.substring('refs/spellcheck/'.length);
@@ -102,6 +105,7 @@ export async function updateRepo(githubApiToken: string, repo: string) {
                             ours: `refs/spellcheck/${spellcheckId}`,
                             theirs: result.fetchHead,
                             fastForwardOnly: true,
+                            cache,
                         })
                         console.log('fetched existing', result.fetchHead);
                     } catch (e) {
@@ -520,21 +524,53 @@ export async function correctText(path: string, metadata: NewCorrectionMetadata,
 }
 
 
-export async function listFiles(branch: string = 'HEAD') {
+export async function listFiles(branch: string = 'HEAD', cache: object = {}) {
     const ref = await git.resolveRef({ fs, dir, ref: branch });
-    const files = await git.listFiles({ fs, dir, ref });
+    const files = await git.listFiles({ fs, dir, ref, cache });
     const hasSpellcheck = await Promise.all(files.toSorted((a, b) => a.localeCompare(b)).map(async (file) => {
-        return { hasCorrection: await hasCorrection(file), path: file };
+        return { hasCorrection: await hasCorrection(file, undefined, cache), path: file };
     }));
     return hasSpellcheck;
+}
 
+export async function getShortestCommitDepth(path: string, cache: object = {}) {
+    const ref = await git.resolveRef({ fs, dir, ref: 'HEAD' });
+    let lastDepth = 0;
+
+
+    const log_of_file = (await git.log({ fs, dir, ref: 'HEAD', filepath: path, depth: 0, cache }))[0];
+
+    // count the number of commits in from head to log_of_file.oid
+    const oidToHandle: { oid: string, depth: number }[] = [{ oid: ref, depth: 0 }]
+    while (oidToHandle.length > 0) {
+        const [{ oid, depth }] = oidToHandle.splice(0, 1)!;
+
+        const parents = (await git.readCommit({ fs, dir, oid, cache })).commit.parent.map(oid => ({ oid, depth: depth + 1 }));
+        if (parents.some(x => x.oid == log_of_file.oid)) {
+            return depth;
+        }
+        // let us store the depth if we runn out of parents
+        lastDepth = Math.max(lastDepth, depth);
+        oidToHandle.push(...parents);
+    }
+    return lastDepth;
 }
 
 
-export async function hasCorrection(path: string) {
+export async function hasCorrection(path: string, depth: number = 0, cache: object = {}) {
     const head = await git.resolveRef({ fs, dir, ref: 'HEAD' });
-    const currentBlob = await git.readBlob({ fs, dir, filepath: path, oid: head });
 
+    let currentCommit = head;
+    for (let i = 0; i < depth; i++) {
+        // get the commit before the current commit
+        const commit = await git.readCommit({ fs, dir, oid: currentCommit, cache });
+        if (commit.commit.parent.length == 0) {
+            return false;
+        }
+        currentCommit = commit.commit.parent[0];
+    }
+
+    const currentBlob = await git.readBlob({ fs, dir, filepath: path, oid: currentCommit, cache });
     const oid = currentBlob.oid;
     try {
         await git.resolveRef({ fs, dir, ref: `refs/spellcheck/${oid}` });
@@ -543,14 +579,14 @@ export async function hasCorrection(path: string) {
         return false;
     }
 }
-export async function tryGetCorrection(path: string) {
-    if (await hasCorrection(path)) {
-        return await getCorrection(path);
+export async function tryGetCorrection(path: string, depth: number = 0) {
+    if (await hasCorrection(path, depth)) {
+        return await getCorrection(path, undefined, undefined, depth);
     } else {
         return null;
     }
 }
-export async function getCorrection(path: string, type: 'local' | 'remote' | 'common parent' = 'local', pathType: 'filePath' | 'spellcheckID' = 'filePath'): Promise<NewCorrectionMetadata> {
+export async function getCorrection(path: string, type: 'local' | 'remote' | 'common parent' = 'local', pathType: 'filePath' | 'spellcheckID' = 'filePath', depth: number = 0): Promise<NewCorrectionMetadata> {
     let oid: string;
     if (pathType == 'spellcheckID') {
         oid = path;
@@ -575,6 +611,13 @@ export async function getCorrection(path: string, type: 'local' | 'remote' | 'co
         throw new Error(`Failed to find correction ${type} ${type == 'common parent' ? 'common parent' : ''} for ${path}`);
     }
 
+    for (let i = 0; i < depth; i++) {
+        const commit = await git.readCommit({ fs, dir, oid: correctionOid });
+        if (commit.commit.parent.length == 0) {
+            throw new Error("No perent fonud");
+        }
+        correctionOid = commit.commit.parent[0];
+    }
 
     const decoder = new TextDecoder();
     const decode = (data: { blob: Uint8Array<ArrayBufferLike> } | undefined | null) => {

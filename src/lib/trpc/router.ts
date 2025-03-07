@@ -27,6 +27,11 @@ export function fireUpdate(path: string, metadata: NewCorrectionMetadata) {
     ee.emit('update', lastUpdate)
 }
 
+let lastModels: { modelNames: string[], styles: string[] } = { modelNames: [], styles: [] };
+export function setModelConiguration(models: typeof lastModels) {
+    lastModels = models;
+    ee.emit('modelUpdate', lastModels);
+}
 
 export const router = t.router({
     greeting: t.procedure.query(async () => {
@@ -49,6 +54,21 @@ export const router = t.router({
     addWordToDictionary: t.procedure.input(z.string()).query(async ({ input }) => {
         await addWordToDictionary(input);
     }),
+    onModelChange: t.procedure
+        .subscription(() => {
+            return observable<typeof lastModels>((emit) => {
+                const callback = (models: typeof lastModels) => {
+                    emit.next(models);
+                };
+                ee.on('modelUpdate', callback);
+                if (lastModels) {
+                    emit.next(lastModels);
+                }
+                return () => {
+                    ee.off('modelUpdate', callback);
+                };
+            });
+        }),
     onMessage: t.procedure
         // .output(onProgress)
         // .input(z.string())
@@ -104,7 +124,7 @@ export const router = t.router({
     })).query(async ({ input }) => {
         const committer = {
             ...input.commitDetails.author,
-            timestamp: Math.floor(Date.now()/1000),
+            timestamp: Math.floor(Date.now() / 1000),
             timezoneOffset: new Date().getTimezoneOffset()
         };
         try {
@@ -126,7 +146,7 @@ export const router = t.router({
     })).query(async ({ input }) => {
         const committer = {
             ...input.commitDetails.author,
-            timestamp: Math.floor(Date.now()/1000),
+            timestamp: Math.floor(Date.now() / 1000),
             timezoneOffset: new Date().getTimezoneOffset()
         };
         await setText(input.path, formatMarkdown(input.text), { ...input.commitDetails, committer, author: committer });

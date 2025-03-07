@@ -8,7 +8,7 @@ import { z } from 'zod';
 import type { BlockContent, DefinitionContent, Paragraph, RootContent } from 'mdast';
 
 import * as git from '$lib/server/git'
-import { fireUpdate } from '$lib/trpc/router';
+import { fireUpdate, setModelConiguration } from '$lib/trpc/router';
 import { zodToJsonSchema } from "zod-to-json-schema";
 
 import { formatMarkdown, transformFromAst, transformToAst } from '$lib';
@@ -166,7 +166,6 @@ const usedModels: (keyof typeof model_properties)[] = (env.MODEL?.split('|') ?? 
 
 
 
-
 async function createModels() {
 
     console.log(`wait for server to be healthy. call ${protocol}://${host}:${port}/api/version`);
@@ -214,24 +213,44 @@ export async function checkRepo(): Promise<never> {
     running = true;
     while (true) {
         try {
+            const cache = {};
 
-            await git.updateRepo(githubApiToken, repo);
+            await git.updateRepo(githubApiToken, repo, cache);
+
+            setModelConiguration({ modelNames: usedModels, styles: Object.keys(desiredStyles) });
+
+
+            console.log('Repo updated');
 
             let workDone = false;
-            const files = await git.listFiles();
+            const files = (await git.listFiles(undefined, cache)).filter(file => pathFilter.test(file.path))
+            // hack to get it to omit the first file
+            .filter(x=>!x.path.split('/').some(x=>x.startsWith('01')|| x.startsWith('00')));
+
+
+            const timing = Date.now();
+            const fileOrdering = Object.fromEntries(await Promise.all(files.map(async ({ path }) => [path, await git.getShortestCommitDepth(path, cache)] as const)))
+            const elapsedMs = Date.now() - timing;
+
+            // we want to start with the oldest entry, the one with the longest commit depth
+            // assuming that newer files are less often changed then newer.
+            files.sort((a, b) => fileOrdering[b.path] - fileOrdering[a.path]);
+            const elapsedTime = elapsedMs < 1000 ?
+                `${elapsedMs}ms` :
+                elapsedMs < 60000 ?
+                    `${(elapsedMs / 1000).toFixed(1)}s` :
+                    `${Math.floor(elapsedMs / 60000)}m ${Math.floor((elapsedMs % 60000) / 1000)}s`;
+            console.log(`Ordering for ${files.length} files took ${elapsedTime}`);
+
             // first check simple spelling and grammar with langtool (its faster)
             for (const file of files) {
-                if (pathFilter.test(file.path)) {
-                    console.log(`check ${file.path}`);
-                    workDone = await correctClassic(file.path) || workDone;
-                }
+                console.log(`check ${file.path}`);
+                workDone = await correctClassic(file.path) || workDone;
             }
             // then check with ollama
             for (const file of files) {
-                if (pathFilter.test(file.path)) {
-                    console.log(`check ${file.path}`);
-                    workDone = await correct(file.path) || workDone;
-                }
+                console.log(`check ${file.path}`);
+                workDone = await correct(file.path) || workDone;
             }
             if (!workDone) {
                 console.log('Nothing to do, shutting down remote');
@@ -500,16 +519,34 @@ RuleConfidence: ${match.rule?.confidence}
 
 async function correct(path: string) {
 
+    const createNewParagraphs = async () => {
+        const previousCorrection = await git.tryGetCorrection(path, 1);
+
+        return paragraphsWithPrefixs(await git.getText(path)).map((v) => {
+            const original = formatMarkdown(v.text);
+            const existingOld = previousCorrection?.paragraphInfo.filter(x => x.original == original)[0];
+            if (existingOld) {
+                return {
+                    ...existingOld,
+                    edited: undefined,
+                    selectedText: undefined,
+                }
+            }
+            else {
+                return {
+                    original,
+                    judgment: {},
+                };
+            }
+
+        });
+    };
+
+
     const metadata: git.NewCorrectionMetadata = (await git.tryGetCorrection(path)) ?? {
         time_in_ms: 0,
         messages: [],
-        paragraphInfo: paragraphsWithPrefixs(await git.getText(path)).map((v) => {
-            return {
-                original: formatMarkdown(v.text),
-                judgment: {},
-            };
-
-        }),
+        paragraphInfo: await createNewParagraphs()
     };
     console.log(`Correct ${path} with ${metadata.paragraphInfo.length} paragraphs and [${usedModels.join(', ')}] models`);
     if (metadata.paragraphInfo.every(v => {
