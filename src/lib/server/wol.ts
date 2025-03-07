@@ -219,6 +219,13 @@ export async function checkRepo(): Promise<never> {
 
             let workDone = false;
             const files = await git.listFiles();
+
+            const fileOrdering = Object.fromEntries(await Promise.all(files.map(async ({ path }) => [path, await git.getShortestCommitDepth(path)] as const)))
+
+            // we want to start with the oldest entry, the one with the longest commit depth
+            // assuming that newer files are less often changed then newer.
+            files.sort((a, b) => fileOrdering[b.path] - fileOrdering[a.path]);
+
             // first check simple spelling and grammar with langtool (its faster)
             for (const file of files) {
                 if (pathFilter.test(file.path)) {

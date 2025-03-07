@@ -527,7 +527,31 @@ export async function listFiles(branch: string = 'HEAD') {
         return { hasCorrection: await hasCorrection(file), path: file };
     }));
     return hasSpellcheck;
+}
 
+export async function getShortestCommitDepth(path: string) {
+    const ref = await git.resolveRef({ fs, dir, ref: 'HEAD' });
+    const headFileOid = (await git.readBlob({ fs, dir, oid: ref, filepath: path })).oid;
+    let lastDepth = 0;
+
+    const oidToHandle: { oid: string, depth: number }[] = [{ oid: ref, depth: 0 }]
+    // get parrent
+    while (oidToHandle.length > 0) {
+        const [{ oid, depth }] = oidToHandle.splice(0, 1)!;
+        try {
+            const currentFileOid = (await git.readBlob({ fs, dir, oid, filepath: path }))?.oid;
+            if (currentFileOid != headFileOid) {
+                return depth;
+            }
+        } catch {
+            // I think the api throws an error if element not fond, so we also need to stop here
+            return depth;
+        }
+        // let us store the depth if we runn out of parents
+        lastDepth = Math.max(lastDepth, depth);
+        oidToHandle.push(...(await git.readCommit({ fs, dir, oid })).commit.parent.map(oid => ({ oid, depth: depth + 1 })));
+    }
+    return lastDepth;
 }
 
 
