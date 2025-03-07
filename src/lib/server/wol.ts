@@ -216,29 +216,35 @@ export async function checkRepo(): Promise<never> {
         try {
 
             await git.updateRepo(githubApiToken, repo);
+            console.log('Repo updated');
 
             let workDone = false;
-            const files = await git.listFiles();
+            const files = (await git.listFiles()).filter(file => pathFilter.test(file.path));
 
+
+            const timing = Date.now();
             const fileOrdering = Object.fromEntries(await Promise.all(files.map(async ({ path }) => [path, await git.getShortestCommitDepth(path)] as const)))
+            const elapsedMs = Date.now() - timing;
 
             // we want to start with the oldest entry, the one with the longest commit depth
             // assuming that newer files are less often changed then newer.
             files.sort((a, b) => fileOrdering[b.path] - fileOrdering[a.path]);
+            const elapsedTime = elapsedMs < 1000 ?
+                `${elapsedMs}ms` :
+                elapsedMs < 60000 ?
+                    `${(elapsedMs / 1000).toFixed(1)}s` :
+                    `${Math.floor(elapsedMs / 60000)}m ${Math.floor((elapsedMs % 60000) / 1000)}s`;
+            console.log(`Ordering for ${files.length} files took ${elapsedTime}`);
 
             // first check simple spelling and grammar with langtool (its faster)
             for (const file of files) {
-                if (pathFilter.test(file.path)) {
-                    console.log(`check ${file.path}`);
-                    workDone = await correctClassic(file.path) || workDone;
-                }
+                console.log(`check ${file.path}`);
+                workDone = await correctClassic(file.path) || workDone;
             }
             // then check with ollama
             for (const file of files) {
-                if (pathFilter.test(file.path)) {
-                    console.log(`check ${file.path}`);
-                    workDone = await correct(file.path) || workDone;
-                }
+                console.log(`check ${file.path}`);
+                workDone = await correct(file.path) || workDone;
             }
             if (!workDone) {
                 console.log('Nothing to do, shutting down remote');
