@@ -41,10 +41,10 @@
 
 	let totelModelWork = $derived(
 		(currentState?.paragraphInfo.length ?? 0) *
-			(configuredModels.modelNames.length * (configuredModels.styles.length + 1) + 1)
+			(configuredModels.modelNames.length * (configuredModels.styles.length) + 1)
 	);
-	let stiles = $derived(new Set(...configuredModels.styles));
-	let modelNames = $derived(new Set(...configuredModels.modelNames));
+	let stiles = $derived(new Set(configuredModels.styles));
+	let modelNames = $derived(new Set(configuredModels.modelNames));
 	let calculatedModelWork = $derived(
 		currentState?.paragraphInfo
 			.map(
@@ -193,7 +193,6 @@
 			<div>
 				<label>
 					{currentState.path}
-					{JSON.stringify(configuredModels)}
 					{calculatedModelWork}/{totelModelWork}
 					{#if !connectedToBackend}
 						<small>
