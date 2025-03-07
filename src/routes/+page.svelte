@@ -193,6 +193,7 @@
 			<div>
 				<label>
 					{currentState.path}
+					{JSON.stringify(configuredModels)}
 					{calculatedModelWork}/{totelModelWork}
 					{#if !connectedToBackend}
 						<small>
