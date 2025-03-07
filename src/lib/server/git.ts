@@ -30,7 +30,7 @@ export function getBotCommitDate() {
 
 
 
-export async function updateRepo(githubApiToken: string, repo: string) {
+export async function updateRepo(githubApiToken: string, repo: string, cache: object = {}) {
     console.log('Updating repository');
     try {
 
@@ -64,6 +64,7 @@ export async function updateRepo(githubApiToken: string, repo: string) {
                 author: bot(),
                 committer: bot(),
                 url: clone_url.href,
+                cache,
             });
             console.log('Repository updated successfully');
         } else {
@@ -73,6 +74,7 @@ export async function updateRepo(githubApiToken: string, repo: string) {
                     http,
                     dir,
                     url: clone_url.href,
+                    cache,
                 });
                 console.log('Repository cloned successfully');
             } catch (error) {
@@ -87,6 +89,7 @@ export async function updateRepo(githubApiToken: string, repo: string) {
                 http,
                 dir,
                 ref: ref.ref,
+                cache,
             })
             if (result.fetchHead) {
                 const spellcheckId = ref.ref.substring('refs/spellcheck/'.length);
@@ -102,6 +105,7 @@ export async function updateRepo(githubApiToken: string, repo: string) {
                             ours: `refs/spellcheck/${spellcheckId}`,
                             theirs: result.fetchHead,
                             fastForwardOnly: true,
+                            cache,
                         })
                         console.log('fetched existing', result.fetchHead);
                     } catch (e) {
@@ -520,55 +524,53 @@ export async function correctText(path: string, metadata: NewCorrectionMetadata,
 }
 
 
-export async function listFiles(branch: string = 'HEAD') {
+export async function listFiles(branch: string = 'HEAD', cache: object = {}) {
     const ref = await git.resolveRef({ fs, dir, ref: branch });
-    const files = await git.listFiles({ fs, dir, ref });
+    const files = await git.listFiles({ fs, dir, ref, cache });
     const hasSpellcheck = await Promise.all(files.toSorted((a, b) => a.localeCompare(b)).map(async (file) => {
-        return { hasCorrection: await hasCorrection(file), path: file };
+        return { hasCorrection: await hasCorrection(file, undefined, cache), path: file };
     }));
     return hasSpellcheck;
 }
 
-export async function getShortestCommitDepth(path: string) {
+export async function getShortestCommitDepth(path: string, cache: object = {}) {
     const ref = await git.resolveRef({ fs, dir, ref: 'HEAD' });
-    const headFileOid = (await git.readBlob({ fs, dir, oid: ref, filepath: path })).oid;
     let lastDepth = 0;
 
+
+    const log_of_file = (await git.log({ fs, dir, ref: 'HEAD', filepath: path, depth: 0, cache }))[0];
+
+    // count the number of commits in from head to log_of_file.oid
     const oidToHandle: { oid: string, depth: number }[] = [{ oid: ref, depth: 0 }]
-    // get parrent
     while (oidToHandle.length > 0) {
         const [{ oid, depth }] = oidToHandle.splice(0, 1)!;
-        try {
-            const currentFileOid = (await git.readBlob({ fs, dir, oid, filepath: path }))?.oid;
-            if (currentFileOid != headFileOid) {
-                return depth;
-            }
-        } catch {
-            // I think the api throws an error if element not fond, so we also need to stop here
+
+        const parents = (await git.readCommit({ fs, dir, oid, cache })).commit.parent.map(oid => ({ oid, depth: depth + 1 }));
+        if (parents.some(x => x.oid == log_of_file.oid)) {
             return depth;
         }
         // let us store the depth if we runn out of parents
         lastDepth = Math.max(lastDepth, depth);
-        oidToHandle.push(...(await git.readCommit({ fs, dir, oid })).commit.parent.map(oid => ({ oid, depth: depth + 1 })));
+        oidToHandle.push(...parents);
     }
     return lastDepth;
 }
 
 
-export async function hasCorrection(path: string, depth: number = 0) {
+export async function hasCorrection(path: string, depth: number = 0, cache: object = {}) {
     const head = await git.resolveRef({ fs, dir, ref: 'HEAD' });
 
     let currentCommit = head;
     for (let i = 0; i < depth; i++) {
         // get the commit before the current commit
-        const commit = await git.readCommit({ fs, dir, oid: currentCommit });
+        const commit = await git.readCommit({ fs, dir, oid: currentCommit, cache });
         if (commit.commit.parent.length == 0) {
             return false;
         }
         currentCommit = commit.commit.parent[0];
     }
 
-    const currentBlob = await git.readBlob({ fs, dir, filepath: path, oid: currentCommit });
+    const currentBlob = await git.readBlob({ fs, dir, filepath: path, oid: currentCommit, cache });
     const oid = currentBlob.oid;
     try {
         await git.resolveRef({ fs, dir, ref: `refs/spellcheck/${oid}` });

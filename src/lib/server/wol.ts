@@ -214,16 +214,17 @@ export async function checkRepo(): Promise<never> {
     running = true;
     while (true) {
         try {
+            const cache = {};
 
-            await git.updateRepo(githubApiToken, repo);
+            await git.updateRepo(githubApiToken, repo, cache);
             console.log('Repo updated');
 
             let workDone = false;
-            const files = (await git.listFiles()).filter(file => pathFilter.test(file.path));
+            const files = (await git.listFiles(undefined, cache)).filter(file => pathFilter.test(file.path));
 
 
             const timing = Date.now();
-            const fileOrdering = Object.fromEntries(await Promise.all(files.map(async ({ path }) => [path, await git.getShortestCommitDepth(path)] as const)))
+            const fileOrdering = Object.fromEntries(await Promise.all(files.map(async ({ path }) => [path, await git.getShortestCommitDepth(path, cache)] as const)))
             const elapsedMs = Date.now() - timing;
 
             // we want to start with the oldest entry, the one with the longest commit depth
