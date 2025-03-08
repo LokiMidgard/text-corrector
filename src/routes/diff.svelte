@@ -34,6 +34,7 @@
 			operation: changeDiagnosticOperation,
 			diagnostic: ModelDiagnostic
 		): void;
+		configuredModels: { modelNames: string[]; styles: string[] };
 	};
 	export function isCorrectedModel(obj: unknown): obj is CorrecedModel {
 		return typeof obj == 'object' && obj != undefined && 'getIndexOfDecorationKey' in obj;
@@ -83,6 +84,11 @@
 
 	let originalModel: CorrecedModel | undefined = $state();
 	let correctionModel: CorrecedModel | undefined = $state();
+
+	let configuredModels: { modelNames: string[]; styles: string[] } = $state({
+		modelNames: [],
+		styles: []
+	});
 
 	function updateModel(
 		model: 'original' | 'correction',
@@ -685,6 +691,7 @@
 				);
 			}
 		}
+		currentModel.configuredModels = configuredModels;
 	}
 
 	function updateText(selectedPath: string) {
@@ -719,6 +726,12 @@
 				return new editorWorker();
 			}
 		};
+
+		client.onModelChange.subscribe(undefined, {
+			onData(message) {
+				configuredModels = message;
+			}
+		});
 
 		client.onMessage.subscribe(undefined, {
 			onStarted() {

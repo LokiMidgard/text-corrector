@@ -119,6 +119,17 @@ export async function monaco_init() {
                         // const info = model.metadata.paragraphInfo[dataIndex];
                         const currentKind = model.getCurrentKind(dataIndex);
 
+                        const currentJugement = model.metadata.paragraphInfo[dataIndex].judgment;
+
+                        const totalCorrection = model.configuredModels.modelNames.length * model.configuredModels.styles.length;
+                        const currentCorrection = Object.entries(currentJugement)
+                            .filter(([modelName]) => model.configuredModels.modelNames.includes(modelName))
+                            .map(([, judgment]) => {
+                                return Object.keys(judgment.text.alternative).filter((alternative) => model.configuredModels.styles.includes(alternative)).length
+                                    + (judgment.text.correction != undefined ? 1 : 0);
+                            })
+                            .reduce((acc, val) => acc + val, 0);
+
                         return [
                             ...[
                                 {
@@ -143,7 +154,7 @@ export async function monaco_init() {
                                                 : currentKind[1] == 'alternative'
                                                     ? `Formulirung ${currentKind[0]}->${currentKind[2]}`
                                                     : 'unknown'
-                                            })`,
+                                            }) ${(currentCorrection == totalCorrection ? '' : `[${currentCorrection}/${totalCorrection}]`)}`,
                                         tooltip: 'Displays a message',
                                         arguments: [value, model]
                                     }
