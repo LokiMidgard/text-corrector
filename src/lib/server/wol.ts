@@ -12,23 +12,22 @@ import { fireUpdate, setModelConiguration } from '$lib/trpc/router';
 import { zodToJsonSchema } from "zod-to-json-schema";
 
 import { formatMarkdown, transformFromAst, transformToAst } from '$lib';
-import path from 'path';
+import path, { parse } from 'path';
 import { env, fetchOptions, wake, type NewParagrapInfo } from './configuration';
 import { getLanguageToolResult, type LanguageToolResult } from './languagetool';
 import { Semaphore } from 'await-semaphore';
 
 
-const generalSmystem = (theme: string) => `
+const correctionSmystem = (theme: string) => `
 Du bist ein weltbekanter, hilfreicher, kompetenter und erfolgreicher Lektor für ${theme}.
 
 Deine Aufgabe ist es Texte zu korrigieren und verbessern. 
 Du erhälst einen einzelen Paragraphen, die du berichtigen und verbessern sollst.
-Du sollst eine Version zurück geben bei der die Rechtschreibung und Gramatk korrigiert wurden,
-und eine Version bei der du auch die Formulierung verbessert hast.
+Du sollst eine Version zurück geben bei der die Rechtschreibung und Gramatk korrigiert wurden.
 
 Neben dem zu berichtigenden Paragraphen wird dir auch der Kontext mitgeteilt,
-Eine allgemeine übresicht der Geschichte, den vorherigen Paragraphen, falls es nicht
-der erste Paragrap des Kapitels ist, und der nächste Paragraph, falls es nicht der
+Eine allgemeine übresicht der Geschichte; einige vorherigen Paragraphen, falls es nicht
+der erste Paragrap des Kapitels ist, und einige nächste Paragraph, falls es nicht der
 letzte Paragraph des Kapitels ist.
 
 ---
@@ -39,7 +38,6 @@ ${JSON.stringify(zodToJsonSchema(CorrectionInputParser), undefined, 2)}
 \`\`\`
 
 **storyContext**: Der Kontext der Geschichte
-**intendedStyles**: Die beschreibung der gewünschten Stiles für die alternative Versionen.
 **previousParagraphs**: Die vorherigen Abschnitte (nicht vollständig)
 **nextParagraphs**: Die nächsten Abschnitte (nicht vollständig)
 
@@ -52,10 +50,45 @@ ${JSON.stringify(zodToJsonSchema(CorrectionResultParser), undefined, 2)}
 
 **involvedCharacters**: Die Charaktere die in diesem Abschnitt vorkommen
 **corrected**: Der korrigierte Abschnitt (nur Rechtschreibung und Grammatik)
-**alternative**: Der Abschnitt mit verbesserten/alternativen Formulierungen
 **goodPoints**: Die guten Punkte des Abschnitts
 **badPoints**: Die schlechten Punkte des Abschnitts
 **judgment**: Eine Zahl zwischen -10 und 10 die die Qualität des Abschnitts bewertet
+
+`
+const alternationSmystem = (theme: string) => `
+Du bist ein weltbekanter, hilfreicher, kompetenter und erfolgreicher Lektor für ${theme}.
+
+Deine Aufgabe ist es Texte zu korrigieren und verbessern. 
+Du erhälst einen einzelen Paragraphen, die du berichtigen und verbessern sollst.
+Du sollst eine Version zurück geben bei der du auch die Formulierung verbessert hast.
+Rechtschreibung und Gramatk sollten ebenfalls stimmen.
+
+Neben dem zu berichtigenden Paragraphen wird dir auch der Kontext mitgeteilt,
+Eine allgemeine übresicht der Geschichte; einige vorherigen Paragraphen, falls es nicht
+der erste Paragrap des Kapitels ist, und einige nächste Paragraph, falls es nicht der
+letzte Paragraph des Kapitels ist. Zusätzlich wird dir auch der gewünschte Stil mitgeteilt.
+
+---
+
+Die Daten werden in JSON vormt übergeben, das wie folgt aufgebaut ist:
+\`\`\`JSON
+${JSON.stringify(zodToJsonSchema(AlternationInputParser), undefined, 2)}
+\`\`\`
+
+**storyContext**: Der Kontext der Geschichte
+**intendedStyles**: Die beschreibung der gewünschten Stiles für die alternative Versionen.
+**previousParagraphs**: Die vorherigen Abschnitte (nicht vollständig)
+**nextParagraphs**: Die nächsten Abschnitte (nicht vollständig)
+
+---
+
+Die Ausgabe wird ebensfalls in JSON erwartet
+\`\`\`JSON
+${JSON.stringify(zodToJsonSchema(AlternationResultParser), undefined, 2)}
+\`\`\`
+
+**involvedCharacters**: Die Charaktere die in diesem Abschnitt vorkommen
+**alternative**: Der Abschnitt mit verbesserten/alternativen Formulierungen
 
 `
 
@@ -63,6 +96,15 @@ ${JSON.stringify(zodToJsonSchema(CorrectionResultParser), undefined, 2)}
 const dictionaryLocation = '.vscode/spellright.dict';
 
 const CorrectionInputParser = z.object({
+    context: z.object({
+        storyContext: z.string(),
+        previousParagraphs: z.array(z.string()),
+        nextParagraphs: z.array(z.string()),
+    }),
+    paragraphToCorrect: z.string(),
+});
+
+const AlternationInputParser = z.object({
     context: z.object({
         storyContext: z.string(),
         intendedStyles: z.string(),
@@ -73,17 +115,23 @@ const CorrectionInputParser = z.object({
 });
 
 type CorrectionInput = z.infer<typeof CorrectionInputParser>;
+type AlternationInput = z.infer<typeof AlternationInputParser>;
 
 const CorrectionResultParser = z.object({
     involvedCharacters: z.array(z.string()),
     corrected: z.string(),
-    alternative: z.string(),
     goodPoints: z.array(z.string()),
     badPoints: z.array(z.string()),
     judgment: z.number(),
 });
 
+const AlternationResultParser = z.object({
+    involvedCharacters: z.array(z.string()),
+    alternative: z.string(),
+});
+
 export type CorrectionResult = z.infer<typeof CorrectionResultParser>;
+export type AlternationResult = z.infer<typeof AlternationResultParser>;
 
 
 const model_properties = {
@@ -187,15 +235,20 @@ async function createModels() {
     for (const model of usedModels) {
         const models = await ollama.list();
         const context_window = model_properties[model]?.context_window;
-        const modelName = `general-${model}`;
-        const generalSystem = generalSmystem("Jugendbücher");
+        const modelNameCorrection = `general-correction-${model}`;
+        const modelNameAlternation = `general-alternation-${model}`;
+        const correctionSystem = correctionSmystem("Jugendbücher");
+        const alternationSystem = alternationSmystem("Jugendbücher");
 
-        if (models.models.every(m => m.name !== modelName)) {
-            await ollama.create({ model: modelName, from: model, system: generalSystem, parameters: { num_ctx: context_window } });
-        } else {
-            await ollama.delete({ model: modelName });
-            await ollama.create({ model: modelName, from: model, system: generalSystem, parameters: { num_ctx: context_window } });
+        const updateModel = async (modelName: string, system: string) => {
+            if (models.models.some(m => m.name == modelName)) {
+                await ollama.delete({ model: modelName });
+            }
+            await ollama.create({ model: modelName, from: model, system, parameters: { num_ctx: context_window } });
         }
+
+        await updateModel(modelNameCorrection, correctionSystem);
+        await updateModel(modelNameAlternation, alternationSystem);
     }
 
 
@@ -224,8 +277,8 @@ export async function checkRepo(): Promise<never> {
 
             let workDone = false;
             const files = (await git.listFiles(undefined, cache)).filter(file => pathFilter.test(file.path))
-            // hack to get it to omit the first file
-            .filter(x=>!x.path.split('/').some(x=>x.startsWith('01')|| x.startsWith('00')));
+                // hack to get it to omit the first file
+                .filter(x => !x.path.split('/').some(x => x.startsWith('01') || x.startsWith('00')));
 
 
             const timing = Date.now();
@@ -308,6 +361,37 @@ export async function getDictionary() {
 }
 
 
+// const modelNameCorrection = `general-correction-${model}`;
+// const modelNameAlternation = `general-alternation-${model}`;
+
+
+async function RunModel(model: `general-correction-${string}`, input: CorrectionInput): Promise<CorrectionResult>;
+async function RunModel(model: `general-alternation-${string}`, input: AlternationInput): Promise<AlternationResult>;
+async function RunModel(model: `general-correction-${string}` | `general-alternation-${string}`, input: CorrectionInput | AlternationInput): Promise<CorrectionResult | AlternationResult> {
+    const ollama = new Ollama({ host: `${protocol}://${host}:${port}`, fetch: noTimeoutFetch });
+    for (let trys = 0; trys < 10; trys++) {
+
+        const result = await ollama.chat({
+            model,
+            messages: [{ role: 'user', content: JSON.stringify(input, undefined, 2) }],
+            format: zodToJsonSchema(model.startsWith('general-correction')
+                ? CorrectionResultParser
+                : AlternationResultParser),
+            stream: true
+        });
+        const parts = [] as string[];
+        for await (const part of result) {
+            parts.push(part.message.content);
+            process.stdout.write(part.message.content);
+        }
+        const correctionJsonText = parts.join('');
+        const parsed = CorrectionResultParser.safeParse(JSON.parse(correctionJsonText));
+        if (parsed.success) { // this should not fail, since ollama already validated against this schema
+            return parsed.data;
+        }
+    }
+    throw new Error(`Unable to get a valid response from model ${model} wit input:\n${JSON.stringify(input, undefined, 2)}`);
+}
 
 async function correctClassic(path: string) {
 
@@ -550,8 +634,14 @@ async function correct(path: string) {
     };
     console.log(`Correct ${path} with ${metadata.paragraphInfo.length} paragraphs and [${usedModels.join(', ')}] models`);
     if (metadata.paragraphInfo.every(v => {
-        const progressed = Object.keys(v.judgment);
-        return progressed.length == usedModels.length && progressed.every(k => usedModels.includes(k as keyof typeof model_properties));
+
+        // check if all models are present and all have a judgment with correct text and all desired styles
+        return usedModels.every(model => Object.keys(v.judgment ?? {}).includes(model))
+            && Object.values(v.judgment ?? {}).every(j => {
+                return Object.keys(desiredStyles ?? {}).every(style => Object.keys(j.text.alternative).includes(style));
+            });
+
+
     })) {
         // already corrected
         console.log(`Already corrected ${path}`);
@@ -570,48 +660,93 @@ async function correct(path: string) {
 
 
     await createModels();
-    const ollama = new Ollama({ host: `${protocol}://${host}:${port}`, fetch: noTimeoutFetch });
-    const styles = Object.keys(desiredStyles).length == 0 ? { "Keine": 'Es wird keine neue Formulierung benötigt.' } : desiredStyles;
     for (const model of usedModels)
-        for (let i = 0; i < metadata.paragraphInfo.length; i++)
-            for (const [desiredTitle, desired] of Object.entries(styles)) {
+        for (let i = 0; i < metadata.paragraphInfo.length; i++) {
+
+            // we get the next and previous paragraphs
+            const text = metadata.paragraphInfo[i].original;
+            const prev: string[] = [];
+            const next: string[] = [];
+
+            // take some context from the previous and next paragraphs
+            // dependend on the size consumed minimum 1 paragraph
+            const aproximatedLinse = 24;
+            const aproximatedCharactersPerLine = 61;
+
+            const minimumCharactersToConsume = aproximatedLinse * aproximatedCharactersPerLine;
+            let charactersConsumed = 0;
+            console.log('get previous paragraphs');
+            while (charactersConsumed < minimumCharactersToConsume && i - prev.length > 0) {
+                const prevText = metadata.paragraphInfo[i - prev.length - 1].original;
+                prev.push(prevText);
+                charactersConsumed += prevText.length;
+            }
+            prev.reverse();
+            charactersConsumed = 0;
+            console.log('get next paragraphs');
+            while (charactersConsumed < minimumCharactersToConsume && (i + next.length + 1) < metadata.paragraphInfo.length) {
+                const nextText = metadata.paragraphInfo[i + next.length + 1].original;
+                next.push(nextText);
+                charactersConsumed += nextText.length;
+            }
+            const currentParagraphInfo = metadata.paragraphInfo[i];
+
+            if (currentParagraphInfo.judgment[model]?.text.correction == undefined) {
+                console.log(`Correct ${path} with model ${model} at paragraph ${i + 1} of ${metadata.paragraphInfo.length}`);
+
+                const startBlock = now();
+
+                const correctionInput = {
+                    context: {
+                        storyContext: context,
+                        previousParagraphs: prev,
+                        nextParagraphs: next,
+                    },
+                    paragraphToCorrect: text,
+                } satisfies CorrectionInput;
+
+                const correctionResult = await RunModel(`general-correction-${model}`, correctionInput);
+
+                if (currentParagraphInfo.judgment[model]) {
+                    currentParagraphInfo.judgment[model].text.correction = correctionResult.corrected;
+                    currentParagraphInfo.judgment[model].goodPoints = correctionResult.goodPoints;
+                    currentParagraphInfo.judgment[model].badPoints = correctionResult.badPoints;
+                    currentParagraphInfo.judgment[model].score = correctionResult.judgment;
+                    currentParagraphInfo.judgment[model].involvedCharacters = correctionResult.involvedCharacters;
+                } else {
+                    currentParagraphInfo.judgment[model] = {
+                        involvedCharacters: correctionResult.involvedCharacters,
+                        text: {
+                            correction: correctionResult.corrected,
+                            alternative: {},
+                        },
+                        score: correctionResult.judgment,
+                        goodPoints: correctionResult.goodPoints,
+                        badPoints: correctionResult.badPoints,
+                    };
+                }
+                const endBlock = now();
+                const currentTime = endBlock.getTime() - startBlock.getTime();
+                metadata.time_in_ms += currentTime;
+
+                metadata.messages = messages;
+                await git.correctText(path, metadata);
+                fireUpdate(path, metadata);
 
 
-                console.log(`Process Part ${i} of ${metadata.paragraphInfo.length} with model ${model} and desired style ${desiredTitle}`);
+            }
+            for (const [desiredTitle, desired] of Object.entries(desiredStyles)) {
+
+
                 const startBlock = now();
                 if (metadata.paragraphInfo[i].judgment[model] !== undefined && metadata.paragraphInfo[i].judgment[model].text.alternative[desiredTitle] !== undefined) {
                     // we already have a judgment for this model and style
                     // just skip this
                     continue;
                 }
-                const text = metadata.paragraphInfo[i].original;
-                const prev: string[] = [];
-                const next: string[] = [];
+                console.log(`Alternate Part ${i + 1} of ${metadata.paragraphInfo.length} with model ${model} and desired style ${desiredTitle}`);
 
-                // take some context from the previous and next paragraphs
-                // dependend on the size consumed minimum 1 paragraph
-                const aproximatedLinse = 24;
-                const aproximatedCharactersPerLine = 61;
-
-                const minimumCharactersToConsume = aproximatedLinse * aproximatedCharactersPerLine;
-                let charactersConsumed = 0;
-                console.log('get previous paragraphs');
-                while (charactersConsumed < minimumCharactersToConsume && i - prev.length > 0) {
-                    const prevText = metadata.paragraphInfo[i - prev.length - 1].original;
-                    prev.push(prevText);
-                    charactersConsumed += prevText.length;
-                }
-                prev.reverse();
-                charactersConsumed = 0;
-                console.log('get next paragraphs');
-                while (charactersConsumed < minimumCharactersToConsume && (i + next.length + 1) < metadata.paragraphInfo.length) {
-                    const nextText = metadata.paragraphInfo[i + next.length + 1].original;
-                    next.push(nextText);
-                    charactersConsumed += nextText.length;
-                }
-
-
-                const input = {
+                const alternationInput = {
                     context: {
                         storyContext: context,
                         intendedStyles: desired,
@@ -619,173 +754,27 @@ async function correct(path: string) {
                         nextParagraphs: next,
                     },
                     paragraphToCorrect: text,
-                } satisfies CorrectionInput;
-                let currentTime = 0;
-                for (let trys = 0; trys < 10; trys++) {
+                } satisfies AlternationInput;
 
-                    console.log(`Process Part\n\n${text}\n\n`);
-                    const result = await ollama.chat({ model: `general-${model}`, messages: [{ role: 'user', content: JSON.stringify(input, undefined, 2) }], format: zodToJsonSchema(CorrectionResultParser), stream: true });
-                    const parts = [] as string[];
+                const alternationResult = await RunModel(`general-alternation-${model}`, alternationInput);
 
-
-                    console.log('Response \n\n');
-
-                    for await (const part of result) {
-                        parts.push(part.message.content);
-                        process.stdout.write(part.message.content);
-                    }
-
-
-                    console.log(`Response Finished`);
-                    // console.log( part.message.content);
-
-                    const correctionJsonText = parts.join('');
-                    // console.log( formatMarkdown(corrected));
-
-                    const { data: correction, success, error } = CorrectionResultParser.safeParse(JSON.parse(correctionJsonText));
-
-
-
-                    if (!success) {
-                        // probably not the result we want
-                        console.log(`retry  ${trys} of 10`);
-                        if (!error.isEmpty) {
-                            console.error(error.toString());
-                            messages.push([ParagrahTexts(error.toString())]);
-                        }
-                        try {
-
-                            messages.push([
-                                {
-                                    type: 'paragraph',
-                                    children: [
-                                        {
-                                            type: 'text',
-                                            value: `retry ${trys} of 10 for textpart ${i}`
-                                        }]
-                                },
-                                {
-                                    type: 'blockquote',
-                                    children: [
-                                        ...transformToAst(`\`\`\`\n${correctionJsonText}\n\`\`\``).children as BlockContent[]
-                                    ]
-                                }
-                            ]
-                            )
-                        } catch (error) {
-                            // this should always return an valid AST for this method, but to be safe
-                            messages.push([ParagrahTexts(JSON.stringify(error))]);
-                        }
-                        continue;
-                    }
-
-                    correction.corrected = formatMarkdown(correction.corrected);
-                    correction.alternative = formatMarkdown(correction.alternative);
-
-                    const currentParagraphInfo = metadata.paragraphInfo[i] as unknown as git.NewCorrectionMetadata['paragraphInfo'][0];
-                    if (currentParagraphInfo.judgment[model] == undefined) {
-                        const alternative = {} as Record<string, string>;
-                        alternative[desiredTitle] = correction.alternative;
-                        currentParagraphInfo.judgment[model] = {
-                            involvedCharacters: correction.involvedCharacters,
-                            text: {
-                                correction: correction.corrected,
-                                alternative,
-                            },
-
-                            score: correction.judgment,
-                            goodPoints: correction.goodPoints,
-                            badPoints: correction.badPoints,
-                        };
-                    } else {
-                        // we have already a judgment for this model
-                        // this happens when we have multiple desired styles
-                        // we just add the alternative to the existing judgment
-                        // and look at the correction again seening what changed
-                        const alternative = currentParagraphInfo.judgment[model].text.alternative;
-                        alternative[desiredTitle] = correction.alternative;
-                        if (correction.corrected != currentParagraphInfo.judgment[model].text.correction) {
-                            // we got a new correction
-                            // we should note the change in protocol field
-                            const protocol = currentParagraphInfo.judgment[model].protocol ?? [];
-                            protocol.push({
-                                style: desiredTitle,
-                                description: `Correction changed`,
-                                newValue: correction.corrected,
-                                oldValue: currentParagraphInfo.judgment[model].text.correction,
-                            });
-                            currentParagraphInfo.judgment[model].protocol = protocol;
-                        }
-                        function ArrayEquals(a: string[], b: string[]) {
-                            const aSorted = a.toSorted();
-                            const bSorted = b.toSorted();
-                            return aSorted.length == bSorted.length && aSorted.every((v, i) => v == bSorted[i]);
-                        }
-                        if (!ArrayEquals(correction.badPoints, currentParagraphInfo.judgment[model].badPoints)) {
-                            // we got a new correction
-                            // we should note the change in protocol field
-                            const protocol = currentParagraphInfo.judgment[model].protocol ?? [];
-                            protocol.push({
-                                style: desiredTitle,
-                                description: `Bad Points changed`,
-                                newValue: correction.badPoints,
-                                oldValue: currentParagraphInfo.judgment[model].badPoints,
-                            });
-                            currentParagraphInfo.judgment[model].protocol = protocol;
-                        }
-                        if (!ArrayEquals(correction.goodPoints, currentParagraphInfo.judgment[model].goodPoints)) {
-                            // we got a new correction
-                            // we should note the change in protocol field
-                            const protocol = currentParagraphInfo.judgment[model].protocol ?? [];
-                            protocol.push({
-                                style: desiredTitle,
-                                description: `Good Points changed`,
-                                newValue: correction.goodPoints,
-                                oldValue: currentParagraphInfo.judgment[model].goodPoints,
-                            });
-                            currentParagraphInfo.judgment[model].protocol = protocol;
-                        }
-                        if (correction.judgment != currentParagraphInfo.judgment[model].score) {
-                            // we got a new correction
-                            // we should note the change in protocol field
-                            const protocol = currentParagraphInfo.judgment[model].protocol ?? [];
-                            protocol.push({
-                                style: desiredTitle,
-                                description: `Score changed`,
-                                newValue: correction.judgment,
-                                oldValue: currentParagraphInfo.judgment[model].score,
-                            });
-                            currentParagraphInfo.judgment[model].protocol = protocol;
-                        }
-                        if (!ArrayEquals(correction.involvedCharacters, currentParagraphInfo.judgment[model].involvedCharacters)) {
-                            // we got a new correction
-                            // we should note the change in protocol field
-                            const protocol = currentParagraphInfo.judgment[model].protocol ?? [];
-                            protocol.push({
-                                style: desiredTitle,
-                                description: `Involved Characters changed`,
-                                newValue: correction.involvedCharacters,
-                                oldValue: currentParagraphInfo.judgment[model].involvedCharacters,
-                            });
-                            currentParagraphInfo.judgment[model].protocol = protocol;
-                        }
-
-                    }
-
-
-                    await git.correctText(path, metadata);
-                    const endBlock = now();
-                    currentTime = endBlock.getTime() - startBlock.getTime();
-                    metadata.time_in_ms += currentTime;
-                    // we got an updated text just stop now
-                    break;
+                if (metadata.paragraphInfo[i].judgment[model] == undefined) {
+                    // this should never happen since correction should always be called first
+                    throw new Error(`Correction for model ${model} was not called before alternation`);
                 }
-                fireUpdate(path, metadata);
 
+                currentParagraphInfo.judgment[model].text.alternative[desiredTitle] = alternationResult.alternative;
+
+                const endBlock = now();
+                const currentTime = endBlock.getTime() - startBlock.getTime();
+                metadata.time_in_ms += currentTime;
 
                 metadata.messages = messages;
                 await git.correctText(path, metadata);
+                fireUpdate(path, metadata);
+
             }
+        }
 
 
 

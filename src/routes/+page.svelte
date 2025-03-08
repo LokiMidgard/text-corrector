@@ -9,6 +9,7 @@
 	import { DateTime, Duration } from 'luxon';
 	import type { UpdateData } from '$lib/trpc/router';
 	import '$lib/default.scss';
+	import { reduceDuration } from '$lib';
 
 	let open = $state(true);
 
@@ -41,7 +42,7 @@
 
 	let totelModelWork = $derived(
 		(currentState?.paragraphInfo.length ?? 0) *
-			(configuredModels.modelNames.length * (configuredModels.styles.length) + 1)
+			(configuredModels.modelNames.length * configuredModels.styles.length + 1)
 	);
 	let stiles = $derived(new Set(configuredModels.styles));
 	let modelNames = $derived(new Set(configuredModels.modelNames));
@@ -188,53 +189,56 @@
 </aside>
 
 <header>
-	<div>
-		{#if currentState}
-			<div>
-				<label>
-					{currentState.path}
-					{calculatedModelWork}/{totelModelWork}
-					{#if !connectedToBackend}
-						<small>
-							runtime {Duration.fromDurationLike({
-								milliseconds: currentState.time_in_ms,
-								seconds: 0,
-								minutes: 0,
-								hours: 0
-							})
-								.normalize()
-								.toHuman()} waiting for backend to come back.
-						</small>
-					{:else if currentState.paragraphInfo.filter((x) => x.judgment).length == currentState.paragraphInfo.length}
-						<small>
-							runtime {Duration.fromDurationLike({
-								milliseconds: currentState.time_in_ms,
-								seconds: 0,
-								minutes: 0,
-								hours: 0
-							})
-								.normalize()
-								.toHuman()}
-						</small>
-					{:else}
-						<small>
-							runtime {now
-								.diff(currentState.timestamp)
-								.plus({ milliseconds: currentState.time_in_ms, seconds: 0, minutes: 0, hours: 0 })
-								.normalize()
-								.toHuman({
-									useGrouping: true,
-									listStyle: 'short',
-									notation: 'compact',
-									compactDisplay: 'short'
-								})}
-						</small>
-					{/if}
-					<progress value={calculatedModelWork} max={totelModelWork} />
-				</label>
-			</div>
-		{/if}
-	</div>
+	{#if currentState}
+		<label style="margin-bottom:0; width: 100%; margin-left: calc(var(--splitter-width) + var(--aside-width) + var(--pico-spacing)); margin-right: var(--pico-spacing);">
+			<small>
+			{currentState.path}
+			{calculatedModelWork}/{totelModelWork}
+			{#if !connectedToBackend}
+					runtime {Duration.fromDurationLike({
+						milliseconds: currentState.time_in_ms,
+						seconds: 0,
+						minutes: 0,
+						hours: 0
+					})
+						.normalize()
+						.toHuman()} waiting for backend to come back.
+			{:else if calculatedModelWork == totelModelWork}
+					runtime {reduceDuration(
+						{
+							milliseconds: currentState.time_in_ms,
+							seconds: 0,
+							minutes: 0,
+							hours: 0
+						},
+						{ skip: ['milliseconds'] }
+					).toHuman({
+						useGrouping: true,
+						listStyle: 'short',
+						notation: 'compact',
+						compactDisplay: 'short'
+					})}
+			{:else}
+				<small style="float: right;">
+					runtime {reduceDuration(
+						now.diff(currentState.timestamp).plus({
+							milliseconds: currentState.time_in_ms,
+							seconds: 0,
+							minutes: 0,
+							hours: 0
+						}),
+						{ skip: ['milliseconds'] }
+					).toHuman({
+						useGrouping: true,
+						listStyle: 'short',
+						notation: 'compact',
+						compactDisplay: 'short'
+					})}
+				</small>
+			{/if}
+			<progress value={calculatedModelWork} max={totelModelWork} />
+		</label>
+	{/if}
 </header>
 <div class="splittr" class:open onmousedown={() => (assideDrag = true)} />
 
@@ -321,6 +325,7 @@
 		width: var(--aside-width);
 		transform: translateX(calc(-1 * var(--aside-width)));
 		transition: 1s transform;
+		background-color: var(--pico-card-background-color);
 		.top {
 			height: 3rem;
 			width: calc(var(--aside-width) - 3rem);
