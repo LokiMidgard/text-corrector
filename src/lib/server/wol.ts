@@ -280,6 +280,8 @@ export async function checkRepo(): Promise<never> {
                 // hack to get it to omit the first file
                 .filter(x => !x.path.split('/').some(x => x.startsWith('01') || x.startsWith('00')));
 
+            const sortedOut = files.filter(x => x.path.split('/').some(x => x.startsWith('01') || x.startsWith('00')));
+
 
             const timing = Date.now();
             const fileOrdering = Object.fromEntries(await Promise.all(files.map(async ({ path }) => [path, await git.getShortestCommitDepth(path, cache)] as const)))
@@ -296,12 +298,12 @@ export async function checkRepo(): Promise<never> {
             console.log(`Ordering for ${files.length} files took ${elapsedTime}`);
 
             // first check simple spelling and grammar with langtool (its faster)
-            for (const file of files) {
+            for (const file of [...files, ...sortedOut]) {
                 console.log(`check ${file.path}`);
                 workDone = await correctClassic(file.path) || workDone;
             }
             // then check with ollama
-            for (const file of files) {
+            for (const file of [...files, ...sortedOut]) {
                 console.log(`check ${file.path}`);
                 workDone = await correct(file.path) || workDone;
             }
