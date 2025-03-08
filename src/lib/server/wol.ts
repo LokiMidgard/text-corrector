@@ -371,12 +371,11 @@ async function RunModel(model: `general-correction-${string}` | `general-alterna
     const ollama = new Ollama({ host: `${protocol}://${host}:${port}`, fetch: noTimeoutFetch });
     for (let trys = 0; trys < 10; trys++) {
 
+        const parser = model.startsWith('general-correction') ? CorrectionResultParser : AlternationResultParser;
         const result = await ollama.chat({
             model,
             messages: [{ role: 'user', content: JSON.stringify(input, undefined, 2) }],
-            format: zodToJsonSchema(model.startsWith('general-correction')
-                ? CorrectionResultParser
-                : AlternationResultParser),
+            format: zodToJsonSchema(parser),
             stream: true
         });
         const parts = [] as string[];
@@ -384,10 +383,16 @@ async function RunModel(model: `general-correction-${string}` | `general-alterna
             parts.push(part.message.content);
             process.stdout.write(part.message.content);
         }
+        console.log('\n');
         const correctionJsonText = parts.join('');
-        const parsed = CorrectionResultParser.safeParse(JSON.parse(correctionJsonText));
+
+
+        const parsed = parser.safeParse(JSON.parse(correctionJsonText));
         if (parsed.success) { // this should not fail, since ollama already validated against this schema
             return parsed.data;
+        }
+        else {
+            console.error(`Unable to parse result from model ${model} with input:\n${JSON.stringify(input, undefined, 2)}\nand output:\n${correctionJsonText}`);
         }
     }
     throw new Error(`Unable to get a valid response from model ${model} wit input:\n${JSON.stringify(input, undefined, 2)}`);
@@ -632,7 +637,6 @@ async function correct(path: string) {
         messages: [],
         paragraphInfo: await createNewParagraphs()
     };
-    console.log(`Correct ${path} with ${metadata.paragraphInfo.length} paragraphs and [${usedModels.join(', ')}] models`);
     if (metadata.paragraphInfo.every(v => {
 
         // check if all models are present and all have a judgment with correct text and all desired styles
@@ -644,9 +648,10 @@ async function correct(path: string) {
 
     })) {
         // already corrected
-        console.log(`Already corrected ${path}`);
+        // console.log(`Already corrected ${path}`);
         return false;
     }
+    console.log(`Correct ${path} with ${metadata.paragraphInfo.length} paragraphs and [${usedModels.join(', ')}] models`);
 
 
     const messages: Array<BlockContent | DefinitionContent>[] = [];
@@ -660,7 +665,7 @@ async function correct(path: string) {
 
 
     await createModels();
-    for (const model of usedModels)
+    for (const model of usedModels) {
         for (let i = 0; i < metadata.paragraphInfo.length; i++) {
 
             // we get the next and previous paragraphs
@@ -675,7 +680,6 @@ async function correct(path: string) {
 
             const minimumCharactersToConsume = aproximatedLinse * aproximatedCharactersPerLine;
             let charactersConsumed = 0;
-            console.log('get previous paragraphs');
             while (charactersConsumed < minimumCharactersToConsume && i - prev.length > 0) {
                 const prevText = metadata.paragraphInfo[i - prev.length - 1].original;
                 prev.push(prevText);
@@ -683,7 +687,6 @@ async function correct(path: string) {
             }
             prev.reverse();
             charactersConsumed = 0;
-            console.log('get next paragraphs');
             while (charactersConsumed < minimumCharactersToConsume && (i + next.length + 1) < metadata.paragraphInfo.length) {
                 const nextText = metadata.paragraphInfo[i + next.length + 1].original;
                 next.push(nextText);
@@ -708,7 +711,7 @@ async function correct(path: string) {
                 const correctionResult = await RunModel(`general-correction-${model}`, correctionInput);
 
                 if (currentParagraphInfo.judgment[model]) {
-                    currentParagraphInfo.judgment[model].text.correction = correctionResult.corrected;
+                    currentParagraphInfo.judgment[model].text.correction = formatMarkdown(correctionResult.corrected);
                     currentParagraphInfo.judgment[model].goodPoints = correctionResult.goodPoints;
                     currentParagraphInfo.judgment[model].badPoints = correctionResult.badPoints;
                     currentParagraphInfo.judgment[model].score = correctionResult.judgment;
@@ -732,9 +735,9 @@ async function correct(path: string) {
                 metadata.messages = messages;
                 await git.correctText(path, metadata);
                 fireUpdate(path, metadata);
-
-
             }
+
+
             for (const [desiredTitle, desired] of Object.entries(desiredStyles)) {
 
 
@@ -763,7 +766,7 @@ async function correct(path: string) {
                     throw new Error(`Correction for model ${model} was not called before alternation`);
                 }
 
-                currentParagraphInfo.judgment[model].text.alternative[desiredTitle] = alternationResult.alternative;
+                currentParagraphInfo.judgment[model].text.alternative[desiredTitle] = formatMarkdown(alternationResult.alternative);
 
                 const endBlock = now();
                 const currentTime = endBlock.getTime() - startBlock.getTime();
@@ -775,6 +778,7 @@ async function correct(path: string) {
 
             }
         }
+    }
 
 
 

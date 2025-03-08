@@ -686,7 +686,6 @@ export async function getCorrection(path: string, type: 'local' | 'remote' | 'co
                         for (let i = paragraph.corrected.corrections.length - 1; i >= 0; i--) {
                             const correction = paragraph.corrected.corrections[i];
                             if (correction.original && words.has(correction.original)) {
-                                console.log(`Removing correction ${correction.original} from ${path}`);
                                 const textBefore = paragraph.corrected.text.substring(0, correction.offset);
                                 const textAfter = paragraph.corrected.text.substring(correction.offset + correction.length);
                                 const replacedText = paragraph.corrected.text.substring(correction.offset, correction.offset + correction.length);
