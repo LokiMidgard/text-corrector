@@ -305,7 +305,7 @@
 				margin: 0;
 				border-top-right-radius: 0;
 				border-top-left-radius: 0;
-				background-color: var(--pico-secondary) !important;
+				background-color: var(--pico-primary-hover) !important;
 			}
 		}
 		.between {

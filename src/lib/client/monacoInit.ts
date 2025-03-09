@@ -140,14 +140,15 @@ export async function monaco_init() {
 
                         const currentJugement = model.metadata.paragraphInfo[dataIndex].judgment;
 
-                        const totalCorrection = model.configuredModels.modelNames.length * model.configuredModels.styles.length;
+                        const totalCorrection = (model.configuredModels.modelNames.length * (model.configuredModels.styles.length + 1)) + 1;
                         const currentCorrection = Object.entries(currentJugement)
                             .filter(([modelName]) => model.configuredModels.modelNames.includes(modelName))
                             .map(([, judgment]) => {
                                 return Object.keys(judgment.text.alternative).filter((alternative) => model.configuredModels.styles.includes(alternative)).length
                                     + (judgment.text.correction != undefined ? 1 : 0);
                             })
-                            .reduce((acc, val) => acc + val, 0);
+                            .reduce((acc, val) => acc + val, 0)
+                            + (model.metadata.paragraphInfo[dataIndex].corrected?.text != undefined ? 1 : 0);
 
                         return [
                             ...[
