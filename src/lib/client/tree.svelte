@@ -24,16 +24,30 @@
 {#snippet element(ele: TreeElement, indentation = 0)}
 	<li style="--indentation:{indentation}">
 		{#if ele.children.length > 0}
-			<details open>
-				<summary>
-					{ele.label}
-				</summary>
-				<ul>
-					{#each ele.children as child}
-						{@render element(child, indentation + 1)}
-					{/each}
-				</ul>
-			</details>
+			{#if ele === tree}
+				{#each ele.children.sort((a, b) => {
+					if (a.children.length > 0 && b.children.length === 0) return -1;
+					if (a.children.length === 0 && b.children.length > 0) return 1;
+					return a.label.localeCompare(b.label);
+				}) as child}
+					{@render element(child, indentation + 1)}
+				{/each}
+			{:else}
+				<details open>
+					<summary>
+						{ele.label}
+					</summary>
+					<ul>
+						{#each ele.children.sort((a, b) => {
+							if (a.children.length > 0 && b.children.length === 0) return -1;
+							if (a.children.length === 0 && b.children.length > 0) return 1;
+							return a.label.localeCompare(b.label);
+						}) as child}
+							{@render element(child, indentation + 1)}
+						{/each}
+					</ul>
+				</details>
+			{/if}
 		{:else}
 			<label title={ele.label}>
 				<span class:hasCorrection={ele.hasCorrection}>
@@ -51,20 +65,29 @@
 <style lang="scss">
 	ul {
 		list-style: none;
-		margin: 0;
-		padding: 0;
+		margin: 0 !important;
+		padding: 0 !important;
 		display: flex;
 		flex-direction: column;
 		background-color: var(--pico-dropdown-background-color);
 		color: var(--pico-dropdown-color) !important;
 	}
+	details {
+		margin: 0 !important;
+		padding: 0 !important;
+	}
+
+	details summary::after {
+		float: left !important;
+	}
+
 	summary,
 	label {
 		/* width: 100%; */
-		margin: 0;
-		padding: 0;
+		margin: 0 !important;
+		padding: 0.2em !important;
 		display: block;
-		padding-left: calc(var(--indentation) * 1rem);
+		padding-left: calc(var(--indentation) * 1rem) !important;
 		/* prevent line break and keep everything in ne line */
 		white-space: nowrap;
 	}
@@ -74,6 +97,7 @@
 		background-color: var(--pico-dropdown-hover-background-color);
 	}
 	li {
+		margin: 0 !important;
 		display: grid;
 		justify-items: stretch;
 		align-items: stretch;

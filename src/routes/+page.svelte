@@ -184,7 +184,6 @@
 	</div>
 	<div class="center">
 		{#if tree}
-			tree {selectedPath}
 			<Tree bind:selectedElement={selectedPath} {tree} />
 		{/if}
 	</div>
@@ -396,7 +395,7 @@
 		}
 		.center {
 			overflow-y: auto;
-			overflow-x: hidden;
+			overflow-x: auto;
 			height: calc(100vh - 3rem);
 		}
 	}
