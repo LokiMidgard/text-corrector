@@ -43,22 +43,29 @@
 
 <script lang="ts">
 	import type monaco from 'monaco-editor';
-	import { onMount } from 'svelte';
+	import { onMount, type Snippet } from 'svelte';
 	import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker';
 	import jsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker';
 	import cssWorker from 'monaco-editor/esm/vs/language/css/css.worker?worker';
 	import htmlWorker from 'monaco-editor/esm/vs/language/html/html.worker?worker';
 	import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker';
 
-	import { renderMarkdown } from '$lib';
+	import { FontAwesomeIcon } from '@fortawesome/svelte-fontawesome';
+	import { faFloppyDisk } from '@fortawesome/free-regular-svg-icons/faFloppyDisk';
+	import { faUpload } from '@fortawesome/free-solid-svg-icons/faUpload';
+
+	import { reduceDuration, renderMarkdown } from '$lib';
 	import type { NewCorrectionMetadata } from '$lib/server/git';
 	import { trpc } from '$lib/trpc/client';
 	import { DateTime, Duration } from 'luxon';
 	import type { UpdateData } from '$lib/trpc/router';
 	import { monaco_init, updateCodeLens } from '$lib/client/monacoInit';
-	import { GlobalThisWSS } from 'trpc-sveltekit/websocket';
 
-	let { path, client }: { path: string; client: ReturnType<typeof trpc> } = $props();
+	let {
+		path,
+		client,
+		header = $bindable()
+	}: { path: string; client: ReturnType<typeof trpc>; header: Snippet | undefined } = $props();
 
 	let divEl: HTMLDivElement;
 	let editor: monaco.editor.IStandaloneDiffEditor;
@@ -76,6 +83,8 @@
 			updateText(path);
 		}
 	});
+
+	let isWorkingOnCurrentFile = $state(false);
 
 	let now = $state(DateTime.now());
 	setInterval(() => {
@@ -708,6 +717,7 @@
 	}
 
 	onMount(() => {
+		header = headerSnipet;
 		// @ts-ignore
 		self.MonacoEnvironment = {
 			getWorker: function (_moduleId: any, label: string) {
@@ -751,6 +761,9 @@
 				if (metadata && metadata.path == path) {
 					// update text
 					updateText(path);
+					isWorkingOnCurrentFile = true;
+				} else {
+					isWorkingOnCurrentFile = false;
 				}
 			}
 		});
@@ -861,6 +874,75 @@
 	}
 </script>
 
+{#snippet headerSnipet()}
+	<header style="margin-right: 1em;">
+		<button
+		data-tooltip="Draft Speichern"
+		data-placement="bottom"
+			onclick={() => {
+				openDialog = 'draft';
+				client.getCommitData.query().then((data) => {
+					dialog_name = data.author.name;
+					dialog_email = data.author.email;
+					dialog_message = data.message;
+				});
+			}}
+		>
+			<FontAwesomeIcon  size="2xl" icon={faFloppyDisk} />
+		</button>
+		<button
+		data-tooltip="Korrekturen anwenden"
+		data-placement="bottom"
+			onclick={() => {
+				openDialog = 'commit';
+				client.getCommitData.query().then((data) => {
+					dialog_name = data.author.name;
+					dialog_email = data.author.email;
+					dialog_message = data.message;
+				});
+			}}
+		>
+			<FontAwesomeIcon size="2xl" icon={faUpload} />
+		</button>
+
+		{#if metadata && !isWorkingOnCurrentFile}
+			<span
+				>{#if metadata.time_in_ms == 0}
+					Nicht gestartet
+				{:else}
+					{reduceDuration(
+						{
+							milliseconds: metadata.time_in_ms,
+							seconds: 0,
+							minutes: 0,
+							hours: 0
+						},
+						{ skip: ['milliseconds'] }
+					).toFormat('hh:mm:ss')}
+				{/if}</span
+			>
+		{:else}
+			{path}
+			{isWorkingOnCurrentFile}
+			{metadata == undefined}
+		{/if}
+
+		<!-- <div>
+		{#if metadata}
+			<div>
+				Progress {metadata.paragraphInfo.filter((x) => x.judgment)}/{metadata.paragraphInfo.length}
+			</div>
+
+			<div>
+				{#each metadata.messages as message}
+					<div>{message}</div>
+				{/each}
+			</div>
+		{/if}
+	</div> -->
+	</header>
+{/snippet}
+
 <dialog open={openDialog != undefined}>
 	<article>
 		<header>
@@ -893,42 +975,6 @@
 		</footer>
 	</article>
 </dialog>
-
-<header>
-	<button
-		onclick={() => {
-			openDialog = 'draft';
-			client.getCommitData.query().then((data) => {
-				dialog_name = data.author.name;
-				dialog_email = data.author.email;
-				dialog_message = data.message;
-			});
-		}}>Save Draft</button
-	>
-	<button
-		onclick={() => {
-			openDialog = 'commit';
-			client.getCommitData.query().then((data) => {
-				dialog_name = data.author.name;
-				dialog_email = data.author.email;
-				dialog_message = data.message;
-			});
-		}}>Complete Review</button
-	>
-	<div>
-		{#if metadata}
-			<div>
-				Progress {metadata.paragraphInfo.filter((x) => x.judgment)}/{metadata.paragraphInfo.length}
-			</div>
-
-			<div>
-				{#each metadata.messages as message}
-					<div>{message}</div>
-				{/each}
-			</div>
-		{/if}
-	</div>
-</header>
 
 <div bind:this={divEl} class="h-screen"></div>
 

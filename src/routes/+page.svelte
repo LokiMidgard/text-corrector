@@ -2,7 +2,7 @@
 	import Hamburger from '$lib/client/hamburger.svelte';
 	import Tree, { type TreeElement } from '$lib/client/tree.svelte';
 	import { trpc } from '$lib/trpc/client';
-	import { onMount } from 'svelte';
+	import { onMount, type Snippet } from 'svelte';
 	import Diff from './diff.svelte';
 	import Textview from './textview.svelte';
 	import Pin from '$lib/client/pin.svelte';
@@ -27,6 +27,8 @@
 	type fileListType = UnwrapPromise<ReturnType<typeof client.listFiles.query>>;
 
 	let selectedPath: undefined | string = $state();
+
+	let childHeader: undefined | Snippet = $state();
 
 	const client = trpc();
 	let fileList: fileListType = $state([]);
@@ -188,56 +190,52 @@
 	</div>
 </aside>
 
-<header>
-	{#if currentState}
-		<label style="margin-bottom:0; width: 100%; margin-left: calc(var(--splitter-width) + var(--aside-width) + var(--pico-spacing)); margin-right: var(--pico-spacing);">
+<header class:open>
+	<label class="globalHeader">
+		{#if currentState}
 			<small>
-			{currentState.path}
-			{calculatedModelWork}/{totelModelWork}
-			{#if !connectedToBackend}
-					runtime {Duration.fromDurationLike({
-						milliseconds: currentState.time_in_ms,
-						seconds: 0,
-						minutes: 0,
-						hours: 0
-					})
-						.normalize()
-						.toHuman()} waiting for backend to come back.
-			{:else if calculatedModelWork == totelModelWork}
-					runtime {reduceDuration(
-						{
+				{currentState.path}
+				{calculatedModelWork}/{totelModelWork}
+				<span style="float: right;">
+					{#if !connectedToBackend}
+						runtime {Duration.fromDurationLike({
 							milliseconds: currentState.time_in_ms,
 							seconds: 0,
 							minutes: 0,
 							hours: 0
-						},
-						{ skip: ['milliseconds'] }
-					).toHuman({
-						useGrouping: true,
-						listStyle: 'short',
-						notation: 'compact',
-						compactDisplay: 'short'
-					})}
-			{:else}
-				<small style="float: right;">
-					runtime {reduceDuration(
-						now.diff(currentState.timestamp).plus({
-							milliseconds: currentState.time_in_ms,
-							seconds: 0,
-							minutes: 0,
-							hours: 0
-						}),
-						{ skip: ['milliseconds'] }
-					).toHuman({
-						useGrouping: true,
-						listStyle: 'short',
-						notation: 'compact',
-						compactDisplay: 'short'
-					})}
-				</small>
-			{/if}
+						})
+							.normalize()
+							.toFormat('hh:mm:ss')} waiting for backend to come back.
+					{:else if calculatedModelWork == totelModelWork}
+						runtime {reduceDuration(
+							{
+								milliseconds: currentState.time_in_ms,
+								seconds: 0,
+								minutes: 0,
+								hours: 0
+							},
+							{ skip: ['milliseconds'] }
+						).toFormat('hh:mm:ss')}
+					{:else}
+						runtime {reduceDuration(
+							now.diff(currentState.timestamp).plus({
+								milliseconds: currentState.time_in_ms,
+								seconds: 0,
+								minutes: 0,
+								hours: 0
+							}),
+							{ skip: ['milliseconds'] }
+						).toFormat('hh:mm:ss')}
+					{/if}
+				</span>
+			</small>
 			<progress value={calculatedModelWork} max={totelModelWork} />
-		</label>
+		{/if}
+	</label>
+	{#if childHeader}
+		<div class="childHeader">
+			{@render childHeader()}
+		</div>
 	{/if}
 </header>
 <div class="splittr" class:open onmousedown={() => (assideDrag = true)} />
@@ -245,7 +243,7 @@
 <main>
 	{#if selectedPath}
 		{#if lookup[selectedPath].hasCorrection}
-			<Diff path={selectedPath} {client} />
+			<Diff path={selectedPath} {client} bind:header={childHeader} />
 		{:else}
 			<Textview path={selectedPath} {client} />
 		{/if}
@@ -275,9 +273,44 @@
 		right: 0;
 		height: var(--header-height);
 		background-color: var(--menu-background);
-		display: flex;
+		display: grid;
 		justify-content: center;
 		align-items: center;
+
+		gap: 1em;
+		grid-template-columns: var(--header-height) 1fr 1fr;
+		grid-template-areas: 'asside globalHeader childHeader';
+
+		&.open {
+			grid-template-columns: calc(var(--splitter-width) + var(--aside-width)) 1fr 1fr;
+		}
+
+		.globalHeader {
+			grid-area: globalHeader;
+			width: 100%;
+			display: flex;
+			flex-direction: column;
+			justify-content: stretch;
+			height: var(--header-height);
+			align-items: stretch;
+			> small {
+				flex-grow: 1;
+			}
+			progress {
+				width: 100%;
+				margin: 0;
+				border-bottom-right-radius: 0;
+				border-bottom-left-radius: 0;
+			}
+		}
+		.childHeader {
+			grid-area: childHeader;
+			width: 100%;
+			display: flex;
+			background-color: var(--pico-secondary);
+			justify-content: center;
+			align-items: center;
+		}
 	}
 
 	.splittr.open {
@@ -354,6 +387,9 @@
 	:global(.both) {
 		main {
 			left: calc(var(--aside-width) + var(--splitter-width));
+		}
+		header.open {
+			grid-template-columns: var(--header-height) 1fr 1fr;
 		}
 	}
 </style>

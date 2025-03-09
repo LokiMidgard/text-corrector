@@ -47,6 +47,7 @@
                 color: var(--vscode-breadcrumb-background);
                 background-color: var(--vscode-editorLink-activeForeground);
             }
+
             &:disabled {
                 color: var(--vscode-breadcrumb-background);
                 background-color: var(--vscode-inputValidation-infoBorder);
@@ -126,7 +127,7 @@ details.protocol-details:has(div:empty) {
     display: none;
 }
 
-button.text{
+button.text {
     background: none;
     border: none;
     box-shadow: none;
@@ -139,32 +140,34 @@ button.text{
     padding: 0em;
     // text-align: center;
     // width: 100%;
-    
+
     &:hover {
         color: var(--pico-primary-hover);
         border: none;
         box-shadow: none;
     }
-    
+
     &:active {
         color: var(--pico-primary-focus);
         box-shadow: none;
         border: none;
     }
+
     &:focus {
         color: var(--pico-primary-focus);
         box-shadow: none;
         border: none;
         outline: none !important;
     }
-    
+
     &.selected {
         text-decoration: underline;
         text-decoration-color: var(--pico-primary-underline);
         box-shadow: none;
         border: none;
     }
-    &:disabled{
+
+    &:disabled {
         color: var(--pico-muted);
         cursor: not-allowed;
     }
@@ -172,7 +175,21 @@ button.text{
 
 
 
+body>div>*>:not(.h-screen) header button {
+    margin: 0;
+    padding: 0;
+    border: none;
+    cursor: pointer;
+    height: var(--header-height);
+    border-radius: 0;
+    background: none;
+    color: var(--pico-primary-inverse);
+    min-width: var(--header-height);
 
+    &:hover {
+        background-color: var(--pico-primary-hover);
+    }
+}
 
 :root {
     --vscode-icon-add-content: '\ea60';

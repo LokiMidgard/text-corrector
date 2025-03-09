@@ -7,6 +7,7 @@ let MonacoPromise: Promise<typeof import('monaco-editor')> | undefined;
 const updateCodeLensListener = [] as ({ onChange: () => void })[];
 
 export function updateCodeLens() {
+    console.log(`updateCodeLens with ${updateCodeLensListener.length} listeners`);
     updateCodeLensListener.forEach((listener) => {
         listener.onChange();
     });
