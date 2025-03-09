@@ -639,16 +639,14 @@ async function correct(path: string) {
         messages: [],
         paragraphInfo: await createNewParagraphs()
     };
-    if (metadata.paragraphInfo.every(v => {
-
+    const isEveryModelAndStyleProcessed = metadata.paragraphInfo.every(v => {
         // check if all models are present and all have a judgment with correct text and all desired styles
         return usedModels.every(model => Object.keys(v.judgment ?? {}).includes(model))
             && Object.values(v.judgment ?? {}).every(j => {
                 return Object.keys(desiredStyles ?? {}).every(style => Object.keys(j.text.alternative).includes(style));
             });
-
-
-    })) {
+    });
+    if (isEveryModelAndStyleProcessed) {
         // already corrected
         // console.log(`Already corrected ${path}`);
         return false;
@@ -667,11 +665,12 @@ async function correct(path: string) {
 
 
     await createModels();
-    for (const model of usedModels) {
-        for (let i = 0; i < metadata.paragraphInfo.length; i++) {
+    for (let modelIndex = 0; modelIndex < usedModels.length; modelIndex++) {
+        const model = usedModels[modelIndex];        
+        for (let paragraphIndex = 0; paragraphIndex < metadata.paragraphInfo.length; paragraphIndex++) {
 
             // we get the next and previous paragraphs
-            const text = metadata.paragraphInfo[i].original;
+            const text = metadata.paragraphInfo[paragraphIndex].original;
             const prev: string[] = [];
             const next: string[] = [];
 
@@ -682,22 +681,22 @@ async function correct(path: string) {
 
             const minimumCharactersToConsume = aproximatedLinse * aproximatedCharactersPerLine;
             let charactersConsumed = 0;
-            while (charactersConsumed < minimumCharactersToConsume && i - prev.length > 0) {
-                const prevText = metadata.paragraphInfo[i - prev.length - 1].original;
+            while (charactersConsumed < minimumCharactersToConsume && paragraphIndex - prev.length > 0) {
+                const prevText = metadata.paragraphInfo[paragraphIndex - prev.length - 1].original;
                 prev.push(prevText);
                 charactersConsumed += prevText.length;
             }
             prev.reverse();
             charactersConsumed = 0;
-            while (charactersConsumed < minimumCharactersToConsume && (i + next.length + 1) < metadata.paragraphInfo.length) {
-                const nextText = metadata.paragraphInfo[i + next.length + 1].original;
+            while (charactersConsumed < minimumCharactersToConsume && (paragraphIndex + next.length + 1) < metadata.paragraphInfo.length) {
+                const nextText = metadata.paragraphInfo[paragraphIndex + next.length + 1].original;
                 next.push(nextText);
                 charactersConsumed += nextText.length;
             }
-            const currentParagraphInfo = metadata.paragraphInfo[i];
+            const currentParagraphInfo = metadata.paragraphInfo[paragraphIndex];
 
             if (currentParagraphInfo.judgment[model]?.text.correction == undefined) {
-                console.log(`Correct ${path} with model ${model} at paragraph ${i + 1} of ${metadata.paragraphInfo.length}`);
+                console.log(`Correct ${path} with model ${model} at paragraph ${paragraphIndex + 1} of ${metadata.paragraphInfo.length}`);
 
                 const startBlock = now();
 
@@ -740,16 +739,16 @@ async function correct(path: string) {
             }
 
 
-            for (const [desiredTitle, desired] of Object.entries(desiredStyles)) {
+            for (const [desiredTitle, desired, styleIndex] of Object.entries(desiredStyles).map(([k, v],i) => [k, v,i]as const)) {
 
 
                 const startBlock = now();
-                if (metadata.paragraphInfo[i].judgment[model] !== undefined && metadata.paragraphInfo[i].judgment[model].text.alternative[desiredTitle] !== undefined) {
+                if (metadata.paragraphInfo[paragraphIndex].judgment[model] !== undefined && metadata.paragraphInfo[paragraphIndex].judgment[model].text.alternative[desiredTitle] !== undefined) {
                     // we already have a judgment for this model and style
                     // just skip this
                     continue;
                 }
-                console.log(`Alternate Part ${i + 1} of ${metadata.paragraphInfo.length} with model ${model} and desired style ${desiredTitle}`);
+                console.log(`Alternate Part ${paragraphIndex + 1} of ${metadata.paragraphInfo.length} for ${path} with model ${model} (${modelIndex+1}/${usedModels.length}) and desired style ${desiredTitle} (${styleIndex+1}/${Object.keys(desiredStyles).length})`);
 
                 const alternationInput = {
                     context: {
@@ -763,7 +762,7 @@ async function correct(path: string) {
 
                 const alternationResult = await RunModel(`general-alternation-${model}`, alternationInput);
 
-                if (metadata.paragraphInfo[i].judgment[model] == undefined) {
+                if (metadata.paragraphInfo[paragraphIndex].judgment[model] == undefined) {
                     // this should never happen since correction should always be called first
                     throw new Error(`Correction for model ${model} was not called before alternation`);
                 }
