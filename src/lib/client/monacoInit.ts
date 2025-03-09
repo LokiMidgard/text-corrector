@@ -4,6 +4,13 @@ import { renderMarkdown } from '$lib';
 
 let MonacoPromise: Promise<typeof import('monaco-editor')> | undefined;
 
+const updateCodeLensListener = [] as ({ onChange: () => void })[];
+
+export function updateCodeLens() {
+    updateCodeLensListener.forEach((listener) => {
+        listener.onChange();
+    });
+}
 
 export async function monaco_init() {
 
@@ -95,7 +102,20 @@ export async function monaco_init() {
             model.changeDiagnostic(operation, diagnosticl);
         })
 
-        Monaco.languages.registerCodeLensProvider('markdown', {
+        const codeLenstProvider = {
+            onDidChange(onChange) {
+                const holder = { onChange: () => onChange(codeLenstProvider) };
+                updateCodeLensListener.push(holder);
+
+                return {
+                    dispose: () => {
+                        const index = updateCodeLensListener.indexOf(holder);
+                        if (index != -1) {
+                            updateCodeLensListener.splice(index, 1);
+                        }
+                    }
+                }
+            },
             provideCodeLenses: function (model) {
                 if (!isCorrectedModel(model)) {
                     return {
@@ -234,7 +254,9 @@ export async function monaco_init() {
             resolveCodeLens: function (model, codeLens) {
                 return codeLens;
             }
-        });
+        } satisfies languages.CodeLensProvider;
+
+        Monaco.languages.registerCodeLensProvider('markdown', codeLenstProvider);
 
         Monaco.editor.registerCommand('switchKind', (accessor, kind: ParagraphKind, decoration: editor.IModelDecoration, model: CorrecedModel) => {
             const dataIndex = model.getIndexOfDecorationKey(decoration.id);

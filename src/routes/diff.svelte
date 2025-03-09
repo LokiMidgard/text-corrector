@@ -55,7 +55,7 @@
 	import { trpc } from '$lib/trpc/client';
 	import { DateTime, Duration } from 'luxon';
 	import type { UpdateData } from '$lib/trpc/router';
-	import { monaco_init } from '$lib/client/monacoInit';
+	import { monaco_init, updateCodeLens } from '$lib/client/monacoInit';
 	import { GlobalThisWSS } from 'trpc-sveltekit/websocket';
 
 	let { path, client }: { path: string; client: ReturnType<typeof trpc> } = $props();
@@ -702,6 +702,7 @@
 			updateModel('original', meta, selectedPath);
 			updateModel('correction', meta, selectedPath);
 			metadata = { ...meta, path: selectedPath, timestamp: DateTime.now() };
+			updateCodeLens();
 		});
 		console.log('selectedPath', selectedPath);
 	}
