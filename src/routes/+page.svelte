@@ -306,6 +306,7 @@
 		.childHeader {
 			grid-area: childHeader;
 			width: 100%;
+			height: var(--header-height);
 			display: flex;
 			background-color: var(--pico-secondary);
 			justify-content: center;

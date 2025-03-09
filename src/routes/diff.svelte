@@ -84,7 +84,8 @@
 		}
 	});
 
-	let isWorkingOnCurrentFile = $state(false);
+	let lastMessage: undefined | { path: string } = $state();
+	let isWorkingOnCurrentFile = $derived(lastMessage?.path == path);
 
 	let now = $state(DateTime.now());
 	setInterval(() => {
@@ -758,12 +759,10 @@
 				console.log('complete');
 			},
 			onData(message) {
+				lastMessage = message;
 				if (metadata && metadata.path == path) {
 					// update text
 					updateText(path);
-					isWorkingOnCurrentFile = true;
-				} else {
-					isWorkingOnCurrentFile = false;
 				}
 			}
 		});
@@ -877,8 +876,8 @@
 {#snippet headerSnipet()}
 	<header style="margin-right: 1em;">
 		<button
-		data-tooltip="Draft Speichern"
-		data-placement="bottom"
+			data-tooltip="Draft Speichern"
+			data-placement="bottom"
 			onclick={() => {
 				openDialog = 'draft';
 				client.getCommitData.query().then((data) => {
@@ -888,11 +887,11 @@
 				});
 			}}
 		>
-			<FontAwesomeIcon  size="2xl" icon={faFloppyDisk} />
+			<FontAwesomeIcon size="2xl" icon={faFloppyDisk} />
 		</button>
 		<button
-		data-tooltip="Korrekturen anwenden"
-		data-placement="bottom"
+			data-tooltip="Korrekturen anwenden"
+			data-placement="bottom"
 			onclick={() => {
 				openDialog = 'commit';
 				client.getCommitData.query().then((data) => {
@@ -922,9 +921,12 @@
 				{/if}</span
 			>
 		{:else}
-			{path}
-			{isWorkingOnCurrentFile}
-			{metadata == undefined}
+			<span aria-busy="true">Loading…</span>
+			<div style="display: none;">
+				{path}
+				{isWorkingOnCurrentFile}
+				{metadata == undefined}
+			</div>
 		{/if}
 
 		<!-- <div>
