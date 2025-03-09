@@ -33,8 +33,8 @@
     position: relative;
     top: 0;
     left: 0;
-    background: white;
-    height: 2px;
+    background: var(--color);
+    height: 3px;
     width: 60%;
     transition: all  0.4s ease;
 }
@@ -47,9 +47,9 @@ TOP AT -10PX ABOVE THE MIDDLE ONE AND BOTTOM ONE IS 10PX BELOW THE MIDDLE: */
     content: '';
     position: absolute;
     top: -10px;
-    background: white;
+    background: var(--color);
     width: 100%;
-    height: 2px;
+    height: 3px;
     transition: all  0.4s ease;
 }
 
@@ -66,7 +66,7 @@ TOP AT -10PX ABOVE THE MIDDLE ONE AND BOTTOM ONE IS 10PX BELOW THE MIDDLE: */
 .active.hamburger > div::before{
     top: 0;
     transform: rotate(45deg);
-    background: black;
+    height: 1px;
 }
 
 /* AND ROTATING THE TOP AND BOTTOM LINES :  */
@@ -74,7 +74,7 @@ TOP AT -10PX ABOVE THE MIDDLE ONE AND BOTTOM ONE IS 10PX BELOW THE MIDDLE: */
 .active.hamburger > div::after{
     top: 0;
     transform: rotate(135deg);
-    background: black;
+    height: 1px;
 }
 
 

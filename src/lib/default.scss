@@ -1,4 +1,4 @@
-@use '@picocss/pico/scss' with ($theme-color: "purple",
+@use '@picocss/pico/scss' with ($theme-color: "amber",
     $parent-selector: "body>div>*>:not(.h-screen)",
 );
 
@@ -182,11 +182,18 @@ body>div>*>:not(.h-screen) header button {
     cursor: pointer;
     height: var(--header-height);
     border-radius: 0;
-    background: none;
+    background: var(--pico-primary);
     color: var(--pico-primary-inverse);
     min-width: var(--header-height);
-
+    
+    
+    &.secondary {
+        background-color: var(--pico-secondary);
+        color: var(--pico-secondary-inverse);
+    }
+    
     &:hover {
+        color: var(--pico-primary-inverse);
         background-color: var(--pico-primary-hover);
     }
 }

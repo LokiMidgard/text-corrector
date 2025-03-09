@@ -60,6 +60,7 @@
 	import { DateTime, Duration } from 'luxon';
 	import type { UpdateData } from '$lib/trpc/router';
 	import { monaco_init, updateCodeLens } from '$lib/client/monacoInit';
+	import { faHourglassEmpty } from '@fortawesome/free-regular-svg-icons';
 
 	let {
 		path,
@@ -686,15 +687,9 @@
 				if (newParagrapInfo.original != oldParagrapInfo.original) {
 					throw new Error('Original text should not be changed');
 				}
-				if (oldParagrapInfo.judgment || !newParagrapInfo.judgment) {
-					continue;
-					// Data should not be changed if it existed before
-				}
-				// everything but original sholud be changed…
-				(oldParagrapInfo as any).judgment = newParagrapInfo.judgment;
+				oldParagrapInfo.judgment = newParagrapInfo.judgment;
 				oldParagrapInfo.corrected = newParagrapInfo.corrected;
 				// the text should not be edited (this is only possible if everything is already set)
-				const firstModel = Object.keys(newParagrapInfo.judgment).toSorted()[0];
 				currentModel.setKind(
 					i,
 					model == 'original' ? 'original' : (newParagrapInfo.selectedText ?? 'corrected')
@@ -702,18 +697,29 @@
 			}
 		}
 		currentModel.configuredModels = configuredModels;
+		updateCodeLens();
 	}
 
-	function updateText(selectedPath: string) {
-		client.getCorrection.query(selectedPath).then((wrongMeta) => {
+	function updateText(selectedPath: string, newMetadata?: MetadataType) {
+		if (newMetadata) {
 			if (!Monaco) return;
-			const meta = wrongMeta as NewCorrectionMetadata;
+			const meta = newMetadata;
 
 			updateModel('original', meta, selectedPath);
 			updateModel('correction', meta, selectedPath);
 			metadata = { ...meta, path: selectedPath, timestamp: DateTime.now() };
 			updateCodeLens();
-		});
+		} else {
+			client.getCorrection.query(selectedPath).then((wrongMeta) => {
+				if (!Monaco) return;
+				const meta = wrongMeta as NewCorrectionMetadata;
+
+				updateModel('original', meta, selectedPath);
+				updateModel('correction', meta, selectedPath);
+				metadata = { ...meta, path: selectedPath, timestamp: DateTime.now() };
+				updateCodeLens();
+			});
+		}
 		console.log('selectedPath', selectedPath);
 	}
 
@@ -760,9 +766,9 @@
 			},
 			onData(message) {
 				lastMessage = message;
-				if (metadata && metadata.path == path) {
+				if (message && message.path == path) {
 					// update text
-					updateText(path);
+					updateText(path, message as MetadataType);
 				}
 			}
 		});
@@ -874,39 +880,17 @@
 </script>
 
 {#snippet headerSnipet()}
-	<header style="margin-right: 1em;">
-		<button
-			data-tooltip="Draft Speichern"
-			data-placement="bottom"
-			onclick={() => {
-				openDialog = 'draft';
-				client.getCommitData.query().then((data) => {
-					dialog_name = data.author.name;
-					dialog_email = data.author.email;
-					dialog_message = data.message;
-				});
-			}}
-		>
-			<FontAwesomeIcon size="2xl" icon={faFloppyDisk} />
-		</button>
-		<button
-			data-tooltip="Korrekturen anwenden"
-			data-placement="bottom"
-			onclick={() => {
-				openDialog = 'commit';
-				client.getCommitData.query().then((data) => {
-					dialog_name = data.author.name;
-					dialog_email = data.author.email;
-					dialog_message = data.message;
-				});
-			}}
-		>
-			<FontAwesomeIcon size="2xl" icon={faUpload} />
-		</button>
-
-		{#if metadata && !isWorkingOnCurrentFile}
-			<span
-				>{#if metadata.time_in_ms == 0}
+	<header>
+		{#if !metadata}
+			<span aria-busy="true">Loading…</span>
+			<div style="display: none;">
+				{path}
+				{isWorkingOnCurrentFile}
+				{metadata == undefined}
+			</div>
+		{:else if !isWorkingOnCurrentFile}
+			<span data-tooltip="Benötigte Zeit" data-placement="bottom">
+				{#if metadata.time_in_ms == 0}
 					Nicht gestartet
 				{:else}
 					{reduceDuration(
@@ -921,13 +905,39 @@
 				{/if}</span
 			>
 		{:else}
-			<span aria-busy="true">Loading…</span>
-			<div style="display: none;">
-				{path}
-				{isWorkingOnCurrentFile}
-				{metadata == undefined}
-			</div>
+			<span aria-busy="true"></span>
 		{/if}
+
+		<button
+			data-tooltip="Draft Speichern"
+			data-placement="bottom"
+			class="secondary"
+			onclick={() => {
+				openDialog = 'draft';
+				client.getCommitData.query().then((data) => {
+					dialog_name = data.author.name;
+					dialog_email = data.author.email;
+					dialog_message = data.message;
+				});
+			}}
+		>
+			<FontAwesomeIcon size="2xl" icon={faFloppyDisk} />
+		</button>
+		<button
+			class="secondary"
+			data-tooltip="Korrekturen anwenden"
+			data-placement="bottom"
+			onclick={() => {
+				openDialog = 'commit';
+				client.getCommitData.query().then((data) => {
+					dialog_name = data.author.name;
+					dialog_email = data.author.email;
+					dialog_message = data.message;
+				});
+			}}
+		>
+			<FontAwesomeIcon size="2xl" icon={faUpload} />
+		</button>
 
 		<!-- <div>
 		{#if metadata}
@@ -981,6 +991,12 @@
 <div bind:this={divEl} class="h-screen"></div>
 
 <style>
+	header {
+		display: flex;
+		justify-content: flex-end;
+		margin-right: 1em;
+		align-items: center;
+	}
 	:root {
 		--header-hight: 3rem;
 	}
@@ -994,6 +1010,6 @@
 		height: var(--header-hight);
 	}
 	.h-screen {
-		height: calc(100cqh - var(--header-hight));
+		height: 100cqh;
 	}
 </style>

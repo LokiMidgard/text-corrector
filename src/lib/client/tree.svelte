@@ -48,13 +48,15 @@
 	</li>
 {/snippet}
 
-<style>
+<style lang="scss">
 	ul {
 		list-style: none;
 		margin: 0;
 		padding: 0;
 		display: flex;
 		flex-direction: column;
+		background-color: var(--pico-dropdown-background-color);
+		color: var(--pico-dropdown-color) !important;
 	}
 	summary,
 	label {
@@ -66,19 +68,39 @@
 		/* prevent line break and keep everything in ne line */
 		white-space: nowrap;
 	}
-	summary:hover,
+	details:has(> summary:hover),
+	details:has(> summary:hover) ul:not(label:has(:checked)),
 	label:hover {
-		background-color: lightgreen;
+		background-color: var(--pico-dropdown-hover-background-color);
 	}
-	label:has(:checked) {
-		background-color: aqua;
+	li {
+		display: grid;
+		justify-items: stretch;
+		align-items: stretch;
+		justify-content: stretch;
+		align-content: stretch;
+	}
+	label {
+		display: flex !important;
+		align-items: center !important;
+		width: unset !important;
+		height: 100%;
+		margin-bottom: 0 !important;
+		&:has(:checked) {
+			background-color: var(--pico-primary);
+			color: var(--pico-primary-inverse);
+			&:hover {
+				background-color: var(--pico-primary-hover);
+			}
+		}
 	}
 	input {
 		display: none;
 	}
 	.hasCorrection {
 		position: relative;
-		display: flex	;		align-content: center;
+		display: flex;
+		align-content: center;
 		&::before {
 			align-self: center;
 			opacity: 0.5;

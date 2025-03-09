@@ -44,7 +44,7 @@
 
 	let totelModelWork = $derived(
 		(currentState?.paragraphInfo.length ?? 0) *
-			(configuredModels.modelNames.length * configuredModels.styles.length + 1)
+			(configuredModels.modelNames.length * (configuredModels.styles.length + 1) + 1)
 	);
 	let stiles = $derived(new Set(configuredModels.styles));
 	let modelNames = $derived(new Set(configuredModels.modelNames));
@@ -193,6 +193,7 @@
 <header class:open>
 	<label class="globalHeader">
 		{#if currentState}
+			<progress value={calculatedModelWork} max={totelModelWork} />
 			<small>
 				{currentState.path}
 				{calculatedModelWork}/{totelModelWork}
@@ -229,14 +230,14 @@
 					{/if}
 				</span>
 			</small>
-			<progress value={calculatedModelWork} max={totelModelWork} />
 		{/if}
 	</label>
-	{#if childHeader}
-		<div class="childHeader">
+	<div class="between"><div></div></div>
+	<div class="childHeader">
+		{#if childHeader}
 			{@render childHeader()}
-		</div>
-	{/if}
+		{/if}
+	</div>
 </header>
 <div class="splittr" class:open onmousedown={() => (assideDrag = true)} />
 
@@ -272,17 +273,19 @@
 		left: 0;
 		right: 0;
 		height: var(--header-height);
-		background-color: var(--menu-background);
+		background-color: var(--pico-primary);
 		display: grid;
-		justify-content: center;
-		align-items: center;
+		justify-content: stretch;
+		align-content: stretch;
+		align-items: stretch;
+		justify-items: stretch;
 
-		gap: 1em;
-		grid-template-columns: var(--header-height) 1fr 1fr;
-		grid-template-areas: 'asside globalHeader childHeader';
+		// gap: 1em;
+		grid-template-columns: calc(var(--header-height) + 1em) 1fr calc(var(--header-height) / 2) 1fr;
+		grid-template-areas: 'asside globalHeader between childHeader';
 
 		&.open {
-			grid-template-columns: calc(var(--splitter-width) + var(--aside-width)) 1fr 1fr;
+			grid-template-columns: calc(var(--header-height) + 1em) 1fr calc(var(--header-height) / 2) 1fr;
 		}
 
 		.globalHeader {
@@ -293,23 +296,37 @@
 			justify-content: stretch;
 			height: var(--header-height);
 			align-items: stretch;
+
 			> small {
 				flex-grow: 1;
 			}
 			progress {
 				width: 100%;
 				margin: 0;
-				border-bottom-right-radius: 0;
-				border-bottom-left-radius: 0;
+				border-top-right-radius: 0;
+				border-top-left-radius: 0;
+				background-color: var(--pico-secondary) !important;
+			}
+		}
+		.between {
+			grid-area: between;
+			background-color: var(--pico-secondary);
+			width: calc(var(--header-height) / 2);
+			height: var(--header-height);
+			> * {
+				width: calc(var(--header-height) / 2);
+				height: var(--header-height);
+				border-bottom-right-radius: calc(var(--header-height) / 2);
+				background-color: var(--pico-primary);
 			}
 		}
 		.childHeader {
+			height: var(--header-height);
 			grid-area: childHeader;
-			width: 100%;
 			height: var(--header-height);
 			display: flex;
 			background-color: var(--pico-secondary);
-			justify-content: center;
+			justify-content: end;
 			align-items: center;
 		}
 	}
@@ -329,10 +346,17 @@
 		display: none;
 	}
 	label.hamburger {
+		--color: var(--pico-secondary-inverse);
+
+		&:hover {
+			// --color: var(--pico-primary-inverse);
+			background-color: var(--pico-secondary-hover);
+		}
+
 		cursor: pointer;
 		position: fixed;
 		z-index: 900;
-		background-color: var(--menu-background);
+		background-color: var(--pico-secondary);
 		top: 0;
 		right: calc(100vw - 3rem);
 		width: 3rem;
@@ -348,6 +372,11 @@
 		&.open {
 			right: calc(100vw - var(--aside-width));
 			border-bottom-right-radius: 0;
+			background-color: var(--pico-primary);
+			--color: var(--pico-primary-inverse);
+			&:hover {
+				background-color: var(--pico-primary-hover);
+			}
 		}
 	}
 	aside {
@@ -363,6 +392,7 @@
 		.top {
 			height: 3rem;
 			width: calc(var(--aside-width) - 3rem);
+			background-color: var(--pico-secondary);
 		}
 		.center {
 			overflow-y: auto;
@@ -390,7 +420,9 @@
 			left: calc(var(--aside-width) + var(--splitter-width));
 		}
 		header.open {
-			grid-template-columns: var(--header-height) 1fr 1fr;
+			grid-template-columns:
+				calc(var(--splitter-width) + var(--aside-width) + 1em) 1fr calc(var(--header-height) / 2)
+				1fr;
 		}
 	}
 </style>

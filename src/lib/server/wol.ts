@@ -301,6 +301,7 @@ export async function checkRepo(): Promise<never> {
             for (const file of [...files, ...sortedOut]) {
                 console.log(`check ${file.path}`);
                 workDone = await correctClassic(file.path) || workDone;
+
             }
             // then check with ollama
             for (const file of [...files, ...sortedOut]) {
@@ -666,7 +667,7 @@ async function correct(path: string) {
 
     await createModels();
     for (let modelIndex = 0; modelIndex < usedModels.length; modelIndex++) {
-        const model = usedModels[modelIndex];        
+        const model = usedModels[modelIndex];
         for (let paragraphIndex = 0; paragraphIndex < metadata.paragraphInfo.length; paragraphIndex++) {
 
             // we get the next and previous paragraphs
@@ -739,7 +740,7 @@ async function correct(path: string) {
             }
 
 
-            for (const [desiredTitle, desired, styleIndex] of Object.entries(desiredStyles).map(([k, v],i) => [k, v,i]as const)) {
+            for (const [desiredTitle, desired, styleIndex] of Object.entries(desiredStyles).map(([k, v], i) => [k, v, i] as const)) {
 
 
                 const startBlock = now();
@@ -748,7 +749,7 @@ async function correct(path: string) {
                     // just skip this
                     continue;
                 }
-                console.log(`Alternate Part ${paragraphIndex + 1} of ${metadata.paragraphInfo.length} for ${path} with model ${model} (${modelIndex+1}/${usedModels.length}) and desired style ${desiredTitle} (${styleIndex+1}/${Object.keys(desiredStyles).length})`);
+                console.log(`Alternate Part ${paragraphIndex + 1} of ${metadata.paragraphInfo.length} for ${path} with model ${model} (${modelIndex + 1}/${usedModels.length}) and desired style ${desiredTitle} (${styleIndex + 1}/${Object.keys(desiredStyles).length})`);
 
                 const alternationInput = {
                     context: {

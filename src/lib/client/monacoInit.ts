@@ -7,7 +7,6 @@ let MonacoPromise: Promise<typeof import('monaco-editor')> | undefined;
 const updateCodeLensListener = [] as ({ onChange: () => void })[];
 
 export function updateCodeLens() {
-    console.log(`updateCodeLens with ${updateCodeLensListener.length} listeners`);
     updateCodeLensListener.forEach((listener) => {
         listener.onChange();
     });
@@ -104,10 +103,9 @@ export async function monaco_init() {
         })
 
         const codeLenstProvider = {
-            onDidChange(onChange) {
+            onDidChange: function (onChange) {
                 const holder = { onChange: () => onChange(codeLenstProvider) };
                 updateCodeLensListener.push(holder);
-
                 return {
                     dispose: () => {
                         const index = updateCodeLensListener.indexOf(holder);
@@ -253,11 +251,13 @@ export async function monaco_init() {
                 };
             },
             resolveCodeLens: function (model, codeLens) {
+                console.log('resolving codeLens')
                 return codeLens;
             }
         } satisfies languages.CodeLensProvider;
 
         Monaco.languages.registerCodeLensProvider('markdown', codeLenstProvider);
+
 
         Monaco.editor.registerCommand('switchKind', (accessor, kind: ParagraphKind, decoration: editor.IModelDecoration, model: CorrecedModel) => {
             const dataIndex = model.getIndexOfDecorationKey(decoration.id);

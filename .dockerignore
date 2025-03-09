@@ -1,3 +1,9 @@
 Dockerfiles
 .dockerignore
 .gitignore
+Dockerfile
+node_modules
+repo
+systems
+.svelte-kit
+.vscode
