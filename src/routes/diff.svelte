@@ -114,50 +114,59 @@
 
 		if (currentModel == undefined || currentModel.metadata.path != path) {
 			const oldModel = currentModel;
-			const text = meta.paragraphInfo.map((x) => {
-				if (model == 'original' || x.selectedText == 'original') {
-					x.selectedText = 'original';
-					return [x.original, 'original'] as const;
-				} else if (x.selectedText == undefined) {
-					if (x.corrected) {
-						x.selectedText = 'corrected';
-						return [x.corrected.text, 'corrected'] as const;
-					}
-					const judgment = Object.keys(x.judgment).toSorted()[0];
-					if (judgment) {
-						x.selectedText = [judgment, 'correction'];
-						return [x.judgment[judgment].text.correction, 'correction'] as const;
-					} else {
+			const text = meta.paragraphInfo
+				.map((x) => {
+					if (model == 'original' || x.selectedText == 'original') {
 						x.selectedText = 'original';
 						return [x.original, 'original'] as const;
-					}
-				} else if (x.selectedText == 'corrected') {
-					if (x.corrected) {
-						return [x.corrected.text, 'corrected'] as const;
+					} else if (x.selectedText == undefined) {
+						if (x.corrected) {
+							x.selectedText = 'corrected';
+							return [x.corrected.text, 'corrected'] as const;
+						}
+						const judgment = Object.keys(x.judgment).toSorted()[0];
+						if (judgment) {
+							x.selectedText = [judgment, 'correction'];
+							return [x.judgment[judgment].text.correction, 'correction'] as const;
+						} else {
+							x.selectedText = 'original';
+							return [x.original, 'original'] as const;
+						}
+					} else if (x.selectedText == 'corrected') {
+						if (x.corrected) {
+							return [x.corrected.text, 'corrected'] as const;
+						} else {
+							x.selectedText = 'original';
+							return [x.original, 'original'] as const;
+						}
+					} else if (x.selectedText == 'edited') {
+						if (x.edited) {
+							return [x.edited, 'edited'] as const;
+						} else {
+							x.selectedText = 'original';
+							return [x.original, 'original'] as const;
+						}
+					} else if (x.selectedText[1] == 'correction') {
+						return [x.judgment[x.selectedText[0]].text.correction, 'correction'] as const;
+					} else if (x.selectedText[1] == 'alternative') {
+						return [
+							x.judgment[x.selectedText[0]].text.alternative[x.selectedText[2]],
+							'alternative'
+						] as const;
 					} else {
-						x.selectedText = 'original';
+						// we do not set the selected text here
+						// so it will change as soon the correction is available
 						return [x.original, 'original'] as const;
 					}
-				} else if (x.selectedText == 'edited') {
-					if (x.edited) {
-						return [x.edited, 'edited'] as const;
+				})
+				.map(([text, type]) => {
+					if (text.endsWith('\n')) {
+						return [text, type] as const;
 					} else {
-						x.selectedText = 'original';
-						return [x.original, 'original'] as const;
+						return [text + '\n', type] as const;
 					}
-				} else if (x.selectedText[1] == 'correction') {
-					return [x.judgment[x.selectedText[0]].text.correction, 'correction'] as const;
-				} else if (x.selectedText[1] == 'alternative') {
-					return [
-						x.judgment[x.selectedText[0]].text.alternative[x.selectedText[2]],
-						'alternative'
-					] as const;
-				} else {
-					// we do not set the selected text here
-					// so it will change as soon the correction is available
-					return [x.original, 'original'] as const;
-				}
-			});
+				});
+
 			const joindText = text.map(([x]) => x).join('\n');
 			currentModel = Monaco.editor.createModel(joindText, 'markdown') as CorrecedModel;
 
@@ -797,21 +806,31 @@
 
 				const shouldBeReadonly = correctionModel
 					.getDecorationsInRange(e.selection)
-					.map((x) => x.id)
-					.map((key) => {
+					.map((x) => [x.id, x.range] as const)
+					.map(([key, range]) => {
 						if (!correctionModel) {
 							throw new Error('No correction model found');
 						}
 						const index = correctionModel.getIndexOfDecorationKey(key);
 						if (index == undefined) {
-							return false;
+							return true;
 						}
+
+						// readonly if selection is outside of range
+						// also not the last line, since that is our seperator
+						if (
+							e.selection.startColumn < range.startColumn ||
+							e.selection.endColumn >= range.endColumn
+						) {
+							return true;
+						}
+
 						const shouldBeReadonly =
 							correctionModel.hasKind(index, 'edited') &&
 							correctionModel.getCurrentKind(index) != 'edited';
 						return shouldBeReadonly;
 					})
-					.some((x) => x);
+					.every((x) => x);
 				if (shouldBeReadonly) {
 					editor.getModifiedEditor().updateOptions({ readOnly: true });
 				} else {
