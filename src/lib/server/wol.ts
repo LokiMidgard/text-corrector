@@ -5,15 +5,15 @@ import { Ollama } from 'ollama';
 
 import { z } from 'zod';
 
-import type { BlockContent, DefinitionContent, Paragraph, RootContent } from 'mdast';
+import type { BlockContent, DefinitionContent,  RootContent } from 'mdast';
 
 import * as git from '$lib/server/git'
 import { fireUpdate, setModelConiguration } from '$lib/trpc/router';
 import { zodToJsonSchema } from "zod-to-json-schema";
 
 import { formatMarkdown, transformFromAst, transformToAst } from '$lib';
-import path, { parse } from 'path';
-import { env, fetchOptions, wake, type NewParagrapInfo } from './configuration';
+import path from 'path';
+import { env, fetchOptions, pathFilter, wake, type NewParagrapInfo } from './configuration';
 import { getLanguageToolResult, type LanguageToolResult } from './languagetool';
 import { Semaphore } from 'await-semaphore';
 
@@ -189,7 +189,6 @@ const githubApiToken = env.GITHUB_API_TOKEN;
 const repo = env.REPO;
 
 
-const pathFilter = env.PATH_FILTER ? new RegExp(env.PATH_FILTER) : /story\/.*\.md/;
 
 const noTimeoutFetch = (input: string | URL | globalThis.Request, init?: RequestInit) => {
     const someInit = init || {}
@@ -403,17 +402,8 @@ async function RunModel(model: `general-correction-${string}` | `general-alterna
 
 async function correctClassic(path: string) {
 
-    const metadata: git.NewCorrectionMetadata = (await git.tryGetCorrection(path)) ?? {
-        time_in_ms: 0,
-        messages: [],
-        paragraphInfo: paragraphsWithPrefixs(await git.getText(path)).map((v) => {
-            return {
-                original: formatMarkdown(v.text),
-                judgment: {},
-            };
 
-        }),
-    };
+    const metadata: git.NewCorrectionMetadata = await getOrCreateMetadta(path);
     console.log(`Correct langtool ${path} with ${metadata.paragraphInfo.length}`);
     if (metadata.paragraphInfo.every(v => {
         return v.corrected?.text != undefined;
@@ -609,7 +599,7 @@ RuleConfidence: ${match.rule?.confidence}
 
 }
 
-async function correct(path: string) {
+async function getOrCreateMetadta(path: string) {
 
     const createNewParagraphs = async () => {
         const previousCorrection = await git.tryGetCorrection(path, 1);
@@ -640,6 +630,17 @@ async function correct(path: string) {
         messages: [],
         paragraphInfo: await createNewParagraphs()
     };
+
+    return metadata;
+
+}
+
+async function correct(path: string) {
+
+
+
+    const metadata: git.NewCorrectionMetadata = await getOrCreateMetadta(path);
+
     const isEveryModelAndStyleProcessed = metadata.paragraphInfo.every(v => {
         // check if all models are present and all have a judgment with correct text and all desired styles
         return usedModels.every(model => Object.keys(v.judgment ?? {}).includes(model))
@@ -842,10 +843,3 @@ const paragraphsWithPrefixs = (text: string) => transformToAst(text).children.re
 const now = () => new Date(Date.now());
 
 
-function ParagrahTexts(params: string): Paragraph {
-    return {
-        type: 'paragraph',
-        children: [{ type: 'text', value: params }]
-    }
-
-}

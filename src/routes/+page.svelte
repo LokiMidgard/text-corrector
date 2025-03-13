@@ -10,10 +10,13 @@
 	import type { UpdateData } from '$lib/trpc/router';
 	import '$lib/default.scss';
 	import { reduceDuration } from '$lib';
+	import { Model } from '$lib/client/localstorage';
 
 	let open = $state(true);
 
 	let both = $state(true);
+
+	let model: Model | undefined = $state();
 
 	$effect(() => {
 		if (open && both) {
@@ -24,13 +27,12 @@
 	});
 
 	type UnwrapPromise<T> = T extends PromiseLike<infer K> ? K : T;
-	type fileListType = UnwrapPromise<ReturnType<typeof client.listFiles.query>>;
+	type fileListType = Model['pathes'];
 
 	let selectedPath: undefined | string = $state();
 
 	let childHeader: undefined | Snippet = $state();
 
-	const client = trpc();
 	let fileList: fileListType = $state([]);
 	let { root: tree, lookup } = $derived(convertPathsToTree(fileList));
 
@@ -40,7 +42,7 @@
 	});
 
 	let connectedToBackend = $state(false);
-	let currentState: undefined | (UpdateData & { timestamp: DateTime }) = $state();
+	let currentState: undefined | ReturnType<Model['getCorrection']> = $state();
 
 	let totelModelWork = $derived(
 		(currentState?.paragraphInfo.length ?? 0) *
@@ -72,41 +74,30 @@
 		now = DateTime.now();
 	}, 500);
 
-	onMount(() => {
-		client.listFiles.query().then((files) => {
-			fileList = files;
-		});
+	onMount(async () => {
+		model = await Model.getInstance();
 
-		client.onModelChange.subscribe(undefined, {
-			onData(message) {
-				configuredModels = message;
-			}
+		model.onChange('pathes', (newPathes) => {
+			fileList = [...newPathes];
 		});
+		const pathes = model.pathes;
+		fileList = [...pathes];
 
-		client.onMessage.subscribe(undefined, {
-			onStarted() {
-				connectedToBackend = true;
-				console.log('connected');
-			},
-			onStopped() {
-				connectedToBackend = false;
-				console.log('disconnected');
-			},
-			onError(error) {
-				console.error('error connection faild', error);
-			},
-			onComplete() {
-				console.log('complete');
-			},
-			onData(message) {
-				currentState = { ...message, timestamp: DateTime.now() };
-				// set correction for newly started work
-				const file = fileList.filter((x) => x.path == message.path)[0];
-				if (file && !file.hasCorrection) {
-					file.hasCorrection = true;
-				}
-			}
+		model.onChange('models', (newModels) => {
+			configuredModels = newModels;
 		});
+		configuredModels = model.configuredModels;
+
+		model.onChange('connected', (connected) => {
+			connectedToBackend = connected;
+		});
+		connectedToBackend = model.connected;
+		model.onChange('currentPath', (state) => {
+			currentState = model?.getCorrection(state);
+		});
+		if (model.currentPath) {
+			currentState = model.getCorrection(model.currentPath);
+		}
 	});
 
 	function convertPathsToTree(filePaths: fileListType) {
@@ -117,7 +108,7 @@
 		};
 		const lookup: Record<string, TreeElement> = { '': root };
 
-		for (const { path, hasCorrection } of filePaths) {
+		for (const path of filePaths) {
 			let parent: undefined | string = undefined;
 			let current: undefined | string = undefined;
 			let currentIndex = path.indexOf('/');
@@ -141,7 +132,6 @@
 			if (!lookup[current]) {
 				const newTreeElement: TreeElement = {
 					children: [],
-					hasCorrection: hasCorrection,
 					id: current,
 					label: current.substring(current.lastIndexOf('/') + 1)
 				};
@@ -218,7 +208,7 @@
 						).toFormat('hh:mm:ss')}
 					{:else}
 						runtime {reduceDuration(
-							now.diff(currentState.timestamp).plus({
+							now.diff(DateTime.fromObject(currentState.timestamp)).plus({
 								milliseconds: currentState.time_in_ms,
 								seconds: 0,
 								minutes: 0,
@@ -241,12 +231,8 @@
 <div class="splittr" class:open onmousedown={() => (assideDrag = true)} />
 
 <main>
-	{#if selectedPath}
-		{#if lookup[selectedPath].hasCorrection}
-			<Diff path={selectedPath} {client} bind:header={childHeader} />
-		{:else}
-			<Textview path={selectedPath} {client} />
-		{/if}
+	{#if selectedPath && model}
+		<Diff path={selectedPath} mainModel={model} bind:header={childHeader} />
 	{/if}
 </main>
 

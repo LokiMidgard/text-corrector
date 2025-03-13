@@ -1,12 +1,13 @@
 // lib/trpc/router.ts
 import type { Context } from '$lib/trpc/context';
 import { initTRPC } from '@trpc/server';
-import { correctText, getCorrection, getCurrentCommitData, getText, listFiles, newCorrectionParser, setText, type NewCorrectionMetadata } from '../server/git';
+import { correctText, getCorrection, getCurrentCommitData, getText, listFiles, newCorrectionParser, setText, tryGetCorrection, type NewCorrectionMetadata } from '../server/git';
 import { z } from 'zod';
 import { observable } from '@trpc/server/observable';
 import EventEmitter from 'events';
 import { addWordToDictionary } from '$lib/server/wol';
 import { formatMarkdown } from '$lib';
+import { pathFilter } from '$lib/server/configuration';
 
 export const t = initTRPC.context<Context>().create();
 
@@ -43,10 +44,24 @@ export const router = t.router({
         const files = await listFiles();
         return files;
     }),
-    getCorrection: t.procedure.input(z.string()).query(async ({ input }) => {
-        const corrections = await getCorrection(input);
+
+    getCorrections: t.procedure.query(async () => {
+        const files = await listFiles();
+        // filter out files that are not matched by the configured pattern
+        const pathesOfInterest = files.filter((file) => pathFilter.test(file.path) && file.hasCorrection);
+        const corrections = await Promise.all(pathesOfInterest.map(async (file) => {
+            const correction = await getCorrection(file.path);
+            return { ...correction, path: file.path };
+        }));
+
+
         return corrections;
     }),
+
+    // getCorrection: t.procedure.input(z.string()).query(async ({ input }) => {
+    //     const corrections = await getCorrection(input);
+    //     return corrections;
+    // }),
     getText: t.procedure.input(z.string()).query(async ({ input }) => {
         const text = await getText(input);
         return text;

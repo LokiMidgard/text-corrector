@@ -99,6 +99,8 @@ export const env = envParser.parse({ ...svelteEnve, ...process.env });
 
 
 
+export const pathFilter = env.PATH_FILTER ? new RegExp(env.PATH_FILTER) : /story\/.*\.md/;
+
 
 
 const fetchAgent = (protocol: string) => protocol == 'https' ? new https.Agent({ ca }) : undefined;

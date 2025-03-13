@@ -1,7 +1,6 @@
 <script lang="ts" module>
 	export type TreeElement = {
 		label: string;
-		hasCorrection?: boolean;
 		id: string;
 		children: TreeElement[];
 	};
@@ -50,7 +49,7 @@
 			{/if}
 		{:else}
 			<label title={ele.label}>
-				<span class:hasCorrection={ele.hasCorrection}>
+				<span>
 					{ele.label}
 				</span>
 				<input type="radio" name="selectedElement" bind:group={selectedElement} value={ele.id} />

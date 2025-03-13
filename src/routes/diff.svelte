@@ -4,7 +4,11 @@
 		NewCorrectionMetadata['paragraphInfo'][number]['selectedText'],
 		undefined
 	>;
-	export type MetadataType = UpdateData & { timestamp: DateTime };
+
+	// data.paragraphInfo[0].edited
+	export type MetadataType = UpdateData & { timestamp: Record<_ToObjectUnit, number> } & {
+		paragraphInfo: { editedOriginal?: string }[];
+	};
 	export type ModelDiagnostic = Exclude<
 		MetadataType['paragraphInfo'][number]['corrected'],
 		undefined
@@ -57,16 +61,17 @@
 	import { reduceDuration, renderMarkdown } from '$lib';
 	import type { NewCorrectionMetadata } from '$lib/server/git';
 	import { trpc } from '$lib/trpc/client';
-	import { DateTime, Duration } from 'luxon';
+	import { DateTime, Duration, type _ToObjectUnit } from 'luxon';
 	import type { UpdateData } from '$lib/trpc/router';
 	import { monaco_init, updateCodeLens } from '$lib/client/monacoInit';
 	import { faHourglassEmpty } from '@fortawesome/free-regular-svg-icons';
+	import type { Model } from '$lib/client/localstorage';
 
 	let {
 		path,
-		client,
+		mainModel,
 		header = $bindable()
-	}: { path: string; client: ReturnType<typeof trpc>; header: Snippet | undefined } = $props();
+	}: { path: string; mainModel: Model; header: Snippet | undefined } = $props();
 
 	let divEl: HTMLDivElement;
 	let editor: monaco.editor.IStandaloneDiffEditor;
@@ -103,7 +108,7 @@
 
 	function updateModel(
 		model: 'original' | 'correction',
-		meta: NewCorrectionMetadata,
+		meta: ReturnType<Model['getCorrection']>,
 		path: string
 	) {
 		if (Monaco == undefined) {
@@ -170,13 +175,7 @@
 			const joindText = text.map(([x]) => x).join('\n');
 			currentModel = Monaco.editor.createModel(joindText, 'markdown') as CorrecedModel;
 
-			currentModel.metadata = {
-				messages: meta.messages,
-				path: path,
-				paragraphInfo: meta.paragraphInfo,
-				time_in_ms: meta.time_in_ms,
-				timestamp: DateTime.now()
-			};
+			currentModel.metadata = JSON.parse(JSON.stringify(meta));
 
 			const cc = currentModel;
 
@@ -390,7 +389,7 @@
 
 				if (operation == 'original with dictionary') {
 					// we will first add the text to the dictionary,
-					client.addWordToDictionary.query(original.original!);
+					mainModel.addWordToDictionary(original.original!);
 
 					// we do not wait, since the dictionray should be used when the response from
 					// languagetool is processed, not here
@@ -530,6 +529,7 @@
 						indexLookUp[index] = newKey;
 						keyLookup[newKey] = index;
 					}
+					mainModel.localUpdate(path,this.metadata)
 				});
 			};
 			currentModel.handleTextEdits.bind(currentModel);
@@ -709,26 +709,15 @@
 		updateCodeLens();
 	}
 
-	function updateText(selectedPath: string, newMetadata?: MetadataType) {
-		if (newMetadata) {
-			if (!Monaco) return;
-			const meta = newMetadata;
+	function updateText(selectedPath: string) {
+		if (!Monaco) return;
+		const meta = mainModel.getCorrection(selectedPath);
 
-			updateModel('original', meta, selectedPath);
-			updateModel('correction', meta, selectedPath);
-			metadata = { ...meta, path: selectedPath, timestamp: DateTime.now() };
-			updateCodeLens();
-		} else {
-			client.getCorrection.query(selectedPath).then((wrongMeta) => {
-				if (!Monaco) return;
-				const meta = wrongMeta as NewCorrectionMetadata;
+		updateModel('original', meta, selectedPath);
+		updateModel('correction', meta, selectedPath);
+		metadata = JSON.parse(JSON.stringify(meta));
+		updateCodeLens();
 
-				updateModel('original', meta, selectedPath);
-				updateModel('correction', meta, selectedPath);
-				metadata = { ...meta, path: selectedPath, timestamp: DateTime.now() };
-				updateCodeLens();
-			});
-		}
 		console.log('selectedPath', selectedPath);
 	}
 
@@ -754,31 +743,14 @@
 			}
 		};
 
-		client.onModelChange.subscribe(undefined, {
-			onData(message) {
-				configuredModels = message;
-			}
+		mainModel.onChange('models', (models) => {
+			configuredModels = models;
 		});
+		configuredModels = mainModel.configuredModels;
 
-		client.onMessage.subscribe(undefined, {
-			onStarted() {
-				console.log('connected');
-			},
-			onStopped() {
-				console.log('disconnected');
-			},
-			onError(error) {
-				console.error('error connection faild', error);
-			},
-			onComplete() {
-				console.log('complete');
-			},
-			onData(message) {
-				lastMessage = message;
-				if (message && message.path == path) {
-					// update text
-					updateText(path, message as MetadataType);
-				}
+		mainModel.onChange('content', (content) => {
+			if (content.path == path) {
+				updateText(path);
 			}
 		});
 
@@ -819,8 +791,8 @@
 						// readonly if selection is outside of range
 						// also not the last line, since that is our seperator
 						if (
-							e.selection.startColumn < range.startColumn ||
-							e.selection.endColumn >= range.endColumn
+							e.selection.startLineNumber < range.startLineNumber ||
+							e.selection.endLineNumber >= range.endLineNumber
 						) {
 							return true;
 						}
@@ -867,32 +839,19 @@
 
 		const meta = JSON.parse(JSON.stringify(correctionModel.metadata)) as MetadataType;
 
+		const commitDetails = {
+			author: {
+				email: dialog_email,
+				name: dialog_name
+			},
+			message: dialog_message
+		};
+
 		console.log('store', text);
 		if (openDialog == 'commit') {
-			await client.finishText.query({
-				path,
-				text,
-				commitDetails: {
-					author: {
-						email: dialog_email,
-						name: dialog_name
-					},
-					message: dialog_message
-				}
-			});
-			updateText(path);
+			await mainModel.saveCorrection('commit', path, text, commitDetails);
 		} else if (openDialog == 'draft') {
-			await client.updateText.query({
-				path,
-				metadata: meta,
-				commitDetails: {
-					author: {
-						email: dialog_email,
-						name: dialog_name
-					},
-					message: dialog_message
-				}
-			});
+			await mainModel.saveCorrection('draft', path, meta, commitDetails);
 		}
 		openDialog = undefined;
 	}
@@ -933,7 +892,7 @@
 			class="secondary"
 			onclick={() => {
 				openDialog = 'draft';
-				client.getCommitData.query().then((data) => {
+				mainModel.commitDetails.then((data) => {
 					dialog_name = data.author.name;
 					dialog_email = data.author.email;
 					dialog_message = data.message;
@@ -948,7 +907,7 @@
 			data-placement="bottom"
 			onclick={() => {
 				openDialog = 'commit';
-				client.getCommitData.query().then((data) => {
+				mainModel.commitDetails.then((data) => {
 					dialog_name = data.author.name;
 					dialog_email = data.author.email;
 					dialog_message = data.message;

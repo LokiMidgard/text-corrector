@@ -2,7 +2,6 @@ import * as git from 'isomorphic-git';
 import fs from 'node:fs/promises';
 import * as syncfs from 'node:fs';
 import { Octokit } from 'octokit';
-import { v4 as uuidv4 } from 'uuid';
 import { z } from 'zod'
 
 import type { BlockContent, DefinitionContent } from 'mdast';
@@ -10,7 +9,7 @@ import type { BlockContent, DefinitionContent } from 'mdast';
 
 import http from 'isomorphic-git/http/web';
 import { fireUpdate } from '$lib/trpc/router';
-import { getDictionary, type CorrectionResult } from './wol';
+import { getDictionary } from './wol';
 import { paragrapInfo } from './configuration';
 
 const dir = 'repo';
@@ -560,13 +559,47 @@ export async function getShortestCommitDepth(path: string, cache: object = {}) {
 export async function hasCorrection(path: string, depth: number = 0, cache: object = {}) {
     const head = await git.resolveRef({ fs, dir, ref: 'HEAD' });
 
+    // this is not correct, we do not want the correction from previous commit, but from previous correction
     let currentCommit = head;
-    for (let i = 0; i < depth; i++) {
+    if (depth == 0) {
+        const currentBlob = await git.readBlob({ fs, dir, filepath: path, oid: currentCommit, cache });
+        const oid = currentBlob.oid;
+        try {
+            await git.resolveRef({ fs, dir, ref: `refs/spellcheck/${oid}` });
+            return true;
+        } catch {
+            return false;
+        }
+    }
+    depth--;
+    {
         // get the commit before the current commit
         const commit = await git.readCommit({ fs, dir, oid: currentCommit, cache });
         if (commit.commit.parent.length == 0) {
             return false;
         }
+        currentCommit = commit.commit.parent[0];
+    }
+
+    while (depth > 0) {
+
+        const currentBlob = await git.readBlob({ fs, dir, filepath: path, oid: currentCommit, cache });
+        const oid = currentBlob.oid;
+        try {
+            await git.resolveRef({ fs, dir, ref: `refs/spellcheck/${oid}` });
+            depth--;
+        } catch {
+            return false;
+        }
+
+
+        // get the commit before the current commit
+        const commit = await git.readCommit({ fs, dir, oid: currentCommit, cache });
+        if (commit.commit.parent.length == 0) {
+            return false;
+        }
+
+
         currentCommit = commit.commit.parent[0];
     }
 
@@ -579,6 +612,14 @@ export async function hasCorrection(path: string, depth: number = 0, cache: obje
         return false;
     }
 }
+
+export async function getSpellcheckId(path: string) {
+    const head = await git.resolveRef({ fs, dir, ref: 'HEAD' });
+    const currentBlob = await git.readBlob({ fs, dir, filepath: path, oid: head });
+    const oid = currentBlob.oid;
+    return oid;
+}
+
 export async function tryGetCorrection(path: string, depth: number = 0) {
     if (await hasCorrection(path, depth)) {
         return await getCorrection(path, undefined, undefined, depth);
@@ -702,6 +743,7 @@ export async function getCorrection(path: string, type: 'local' | 'remote' | 'co
                         }
                     }
                 });
+                // fixup data
                 return data;
             } else {
                 throw new Error(`Faild to read Object oldSchema ${JSON.stringify(isOld.error.flatten(), undefined, 2)}\n\n newSchema ${JSON.stringify(isNew.error.format(), undefined, 2)}`);
