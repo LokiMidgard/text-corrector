@@ -30,7 +30,7 @@ export class Model {
     private currentRunningPath: string | undefined = undefined;
 
     private connectedToBackend = false;
-    private readonly client: ReturnType<typeof trpc>;
+    private client: ReturnType<typeof trpc> | undefined;
 
     public get connected() {
         return this.connectedToBackend;
@@ -45,6 +45,9 @@ export class Model {
         };
 
     public get commitDetails() {
+        if (!this.client || !this.connected) {
+            throw new Error('No connection');
+        }
         return this.client.getCommitData.query();
     }
 
@@ -58,12 +61,21 @@ export class Model {
     }
 
     public addWordToDictionary(word: string) {
+        if (!this.client || !this.connected) {
+            throw new Error('No connection');
+        }
+
         return this.client.addWordToDictionary.query(word);
     }
 
     public saveCorrection(type: 'commit', path: string, metadata: string, commitDetails: { author: { name: string, email: string }, message: string }): Promise<void>;
     public saveCorrection(type: 'draft', path: string, metadata: MetadataType, commitDetails: { author: { name: string, email: string }, message: string }): Promise<void>;
     public async saveCorrection(type: 'commit' | 'draft', path: string, metadata: MetadataType | string, commitDetails: { author: { name: string, email: string }, message: string }) {
+        if (!this.client || !this.connected) {
+            throw new Error('No connection');
+        }
+
+
         if (type == 'commit') {
             if (typeof metadata != 'string') {
                 throw new Error('metadata must be a string');
@@ -111,58 +123,83 @@ export class Model {
             }));
 
 
-        this.client.onMessage.subscribe(undefined, {
-            onData: (data) => {
-                if (data) {
-                    if (this.currentRunningPath != data.path) {
-                        this.currentRunningPath = data.path;
-                        this.lisenersCurrentPath.forEach((listener) => {
-                            listener(data.path);
-                        });
-                    }
-                    this.applyUpdate(data.path, data as NewCorrectionMetadata);
+        const success = await this.initClient();
+
+        if (!success) {
+            const retry = async () => {
+                const success = await this.initClient();
+                if (!success) {
+                    setTimeout(retry, 5000);
                 }
+            };
+            setTimeout(retry, 5000);
+        }
+    }
+
+    private async initClient() {
+        if (!this.client) {
+            return true;
+        }
+        try {
+
+            this.client = trpc();
+
+            this.client.onMessage.subscribe(undefined, {
+                onData: (data) => {
+                    if (data) {
+                        if (this.currentRunningPath != data.path) {
+                            this.currentRunningPath = data.path;
+                            this.lisenersCurrentPath.forEach((listener) => {
+                                listener(data.path);
+                            });
+                        }
+                        this.applyUpdate(data.path, data as NewCorrectionMetadata);
+                    }
+                }
+            });
+            this.client.onModelChange.subscribe(undefined, {
+                onStarted: () => {
+                    this.connectedToBackend = true;
+                    console.log('Started listening to model changes');
+                    this.lisenersConnected.forEach((listener) => {
+                        listener(true);
+                    });
+                },
+                onError: (error) => {
+                    console.error('Error while listening to model changes', error);
+                },
+                onStopped: () => {
+                    this.connectedToBackend = false;
+                    console.log('Stopped listening to model changes');
+                    this.lisenersConnected.forEach((listener) => {
+                        listener(false);
+                    });
+                },
+                onComplete: () => {
+                    console.log('Completed listening to model changes');
+                    this.connectedToBackend = false;
+                    this.lisenersConnected.forEach((listener) => {
+                        listener(false);
+                    });
+                },
+                onData: (data) => {
+                    console.log('Model changed', data);
+                    this._configuredModels = data;
+                    this.lisenersModels.forEach((listener) => {
+                        listener(this._configuredModels);
+                    });
+                },
+            });
+
+
+            const remoteCorrections = await this.client.getCorrections.query();
+            for (const correction of remoteCorrections) {
+                const path = correction.path;
+                this.applyUpdate(path, correction as NewCorrectionMetadata);
             }
-        });
-        this.client.onModelChange.subscribe(undefined, {
-            onStarted: () => {
-                this.connectedToBackend = true;
-                console.log('Started listening to model changes');
-                this.lisenersConnected.forEach((listener) => {
-                    listener(true);
-                });
-            },
-            onError: (error) => {
-                console.error('Error while listening to model changes', error);
-            },
-            onStopped: () => {
-                this.connectedToBackend = false;
-                console.log('Stopped listening to model changes');
-                this.lisenersConnected.forEach((listener) => {
-                    listener(false);
-                });
-            },
-            onComplete: () => {
-                console.log('Completed listening to model changes');
-                this.connectedToBackend = false;
-                this.lisenersConnected.forEach((listener) => {
-                    listener(false);
-                });
-            },
-            onData: (data) => {
-                console.log('Model changed', data);
-                this._configuredModels = data;
-                this.lisenersModels.forEach((listener) => {
-                    listener(this._configuredModels);
-                });
-            },
-        });
-
-
-        const remoteCorrections = await this.client.getCorrections.query();
-        for (const correction of remoteCorrections) {
-            const path = correction.path;
-            this.applyUpdate(path, correction as NewCorrectionMetadata);
+            return true;
+        } catch {
+            return false;
         }
     }
 
