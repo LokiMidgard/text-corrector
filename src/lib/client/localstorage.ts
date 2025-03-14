@@ -33,7 +33,7 @@ export class Model {
     private client: ReturnType<typeof trpc> | undefined;
 
     public get connected() {
-        return this.connectedToBackend;
+        return this.connectedToBackend && this.client != undefined;
     }
 
     private _configuredModels: {
@@ -123,17 +123,17 @@ export class Model {
             }));
 
 
-        const success = await this.initClient();
 
-        if (!success) {
-            const retry = async () => {
-                const success = await this.initClient();
-                if (!success) {
-                    setTimeout(retry, 5000);
-                }
-            };
-            setTimeout(retry, 5000);
-        }
+
+        const retry = async () => {
+            const success = await this.initClient();
+            if (!success) {
+                setTimeout(retry, 5000);
+            }
+
+        };
+        // we do not wait on this
+        retry();
     }
 
     private async initClient() {
@@ -197,6 +197,8 @@ export class Model {
                 const path = correction.path;
                 this.applyUpdate(path, correction as NewCorrectionMetadata);
             }
+
+
             return true;
         } catch {
             return false;
