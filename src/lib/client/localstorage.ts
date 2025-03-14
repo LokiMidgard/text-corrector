@@ -4,15 +4,22 @@ import type { MetadataType } from "../../routes/diff.svelte";
 
 import { trpc } from '$lib/trpc/client';
 import { DateTime } from "luxon";
+import { browser } from "$app/environment";
 
 
 export class Model {
-	localUpdate(path: string, metadata: MetadataType) {
-        this.models[path] = metadata;
-        window.localStorage.setItem(getKey(metadata), JSON.stringify(metadata));
-        // fire the event for content changes
-        this.lisenersContent.forEach((listener) => {
-            listener(metadata);
+    ldb: typeof import("localdata").default;
+    localUpdate(path: string, metadata: MetadataType) {
+        return new Promise<void>((resolve) => {
+            this.models[path] = metadata;
+            this.ldb.set(getKey(metadata), JSON.stringify(metadata), () => {
+                resolve();
+                // fire the event for content changes
+                this.lisenersContent.forEach((listener) => {
+                    listener(metadata);
+                });
+
+            });
         });
     }
 
@@ -70,17 +77,40 @@ export class Model {
         }
     }
 
-    constructor() {
+    constructor(ldb: typeof import('localdata').default) {
         this.client = trpc();
-        const keys = Object.keys(window.localStorage);
-        for (const key of keys) {
-            if (key.startsWith('meta:path')) {
-                const meta = JSON.parse(window.localStorage.getItem(key) ?? '') as MetadataType;
-                this.models[meta.path] = meta;
-            }
-        }
+        this.ldb = ldb;
     }
+
     private async init() {
+        if (!browser) {
+            throw new Error('Model can only be used in browser');
+        }
+
+
+
+        const keys = await new Promise<string[]>(resolve => {
+            this.ldb.list((keys: string[]) => {
+                resolve(keys);
+            });
+        });
+
+
+        await Promise.all(keys
+            .filter((key) => key.startsWith('meta:path'))
+            .map((key) => {
+                return new Promise<void>((resolve) => {
+                    this.ldb.get(key, (value: string) => {
+                        if (value) {
+                            const meta = JSON.parse(value) as MetadataType;
+                            this.models[meta.path] = meta;
+                        }
+                        resolve();
+                    });
+                });
+            }));
+
+
         this.client.onMessage.subscribe(undefined, {
             onData: (data) => {
                 if (data) {
@@ -198,7 +228,13 @@ ${newParagraph.edited}
         }
 
         const updatedMeta = this.models[path];
-        window.localStorage.setItem(getKey(updatedMeta), JSON.stringify(updatedMeta));
+
+        await new Promise<void>((resolve) => {
+            this.ldb.set(getKey(updatedMeta), JSON.stringify(updatedMeta), () => {
+                resolve();
+            });
+        });
+
         // fire the event for content changes
         this.lisenersContent.forEach((listener) => {
             listener(updatedMeta);
@@ -210,8 +246,10 @@ ${newParagraph.edited}
 
     public static async getInstance() {
         if (!Model.instance) {
+            const { default: ldb } = await import('localdata');
+
             Model.instance = new Promise((resolve) => {
-                const instance = new Model();
+                const instance = new Model(ldb);
                 instance.init().then(() => {
                     resolve(instance);
                 });

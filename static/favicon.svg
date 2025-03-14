@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" version="1.1" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:svgjs="http://svgjs.dev/svgjs" width="512" height="512"><svg xmlns="http://www.w3.org/2000/svg" version="1.1" viewBox="0 0 512 512">
+  <defs>
+    <style>
+      .st0 {
+      fill: #fbae17;
+      }
+
+      .st1 {
+      fill: none;
+      }
+
+      .st1, .st2 {
+      stroke: #7b8299;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      stroke-width: 16.86px;
+      }
+
+      .st2 {
+      fill: #969eaf;
+      }
+
+      .st3 {
+      fill: #727b93;
+      }
+
+      .st4 {
+      fill: #caced9;
+      }
+    </style>
+  </defs>
+  <g>
+    <g>
+      <path class="st3" d="M171.51,12.46l1.04,410.13c-24.68.32-67.12-2.84-86.48,12.43-6.75,5.32-9.58,11.73-13.98,18.64-6.47-132.22,4.85-269.61,0-402.37C84.79,3.59,133.17,13.01,171.51,12.46Z"></path>
+      <path class="st4" d="M172.55,422.6c89.25-1.17,178.93,3.03,268.24,1.04-.05,8.34,3.36,73.88-.52,75.61H114.03c-29.62-6.36-40.46-15.2-41.95-45.57,4.4-6.91,7.23-13.32,13.98-18.64,19.36-15.27,61.8-12.1,86.48-12.43Z"></path>
+      <g>
+        <path class="st0" d="M440.79,423.63c-89.31,2-179-2.21-268.24-1.04l-1.04-410.13c90.04-1.29,180.27.54,270.32.52.54,136.88-.26,273.81-1.04,410.65Z"></path>
+        <path class="st2" d="M250.54,162.38c.37-.05.75-.11,1.12-.16,69.37-9.13,113.03,71.1,68.61,125.5-29.08,35.61-84.34,35.96-115.15,2.32-41.46-45.27-15.3-118.76,45.42-127.66.37-.05.75-.11,1.12-.16-.37.05-.75.1-1.12.16Z"></path>
+      </g>
+    </g>
+    <line class="st1" x1="319.49" y1="298.19" x2="403.76" y2="382.46"></line>
+  </g>
+</svg><style>@media (prefers-color-scheme: light) { :root { filter: none; } }
+@media (prefers-color-scheme: dark) { :root { filter: none; } }
+</style></svg>
