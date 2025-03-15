@@ -294,13 +294,13 @@ export async function checkRepo(): Promise<never> {
             console.log(`Ordering for ${files.length} files took ${elapsedTime}`);
 
             // first check simple spelling and grammar with langtool (its faster)
-            for (const file of [...files, ...sortedOut]) {
+            for (const file of files) {
                 console.log(`check ${file.path}`);
                 workDone = await correctClassic(file.path) || workDone;
 
             }
             // then check with ollama
-            for (const file of [...files, ...sortedOut]) {
+            for (const file of files) {
                 console.log(`check ${file.path}`);
                 workDone = await correct(file.path) || workDone;
             }
