@@ -702,10 +702,17 @@
 				oldParagrapInfo.judgment = newParagrapInfo.judgment;
 				oldParagrapInfo.corrected = newParagrapInfo.corrected;
 				// the text should not be edited (this is only possible if everything is already set)
-				currentModel.setKind(
-					i,
-					model == 'original' ? 'original' : (newParagrapInfo.selectedText ?? 'corrected')
-				);
+
+				if((oldParagrapInfo.selectedText == undefined|| oldParagrapInfo.selectedText == 'original') 
+					&& oldParagrapInfo.corrected ==undefined 
+					&& newParagrapInfo.corrected != undefined 
+					&& model=='correction'){ {
+					currentModel.setKind(
+						i,
+						 (newParagrapInfo.selectedText ?? 'corrected')
+					);
+				}
+
 			}
 		}
 		currentModel.configuredModels = configuredModels;
