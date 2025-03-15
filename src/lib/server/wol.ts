@@ -5,7 +5,7 @@ import { Ollama } from 'ollama';
 
 import { z } from 'zod';
 
-import type { BlockContent, DefinitionContent,  RootContent } from 'mdast';
+import type { BlockContent, DefinitionContent, RootContent } from 'mdast';
 
 import * as git from '$lib/server/git'
 import { fireUpdate, setModelConiguration } from '$lib/trpc/router';
@@ -275,11 +275,8 @@ export async function checkRepo(): Promise<never> {
             console.log('Repo updated');
 
             let workDone = false;
-            const files = (await git.listFiles(undefined, cache)).filter(file => pathFilter.test(file.path))
-                // hack to get it to omit the first file
-                .filter(x => !x.path.split('/').some(x => x.startsWith('01') || x.startsWith('00')));
+            const files = (await git.listFiles(undefined, cache)).filter(file => pathFilter.test(file.path));
 
-            const sortedOut = files.filter(x => x.path.split('/').some(x => x.startsWith('01') || x.startsWith('00')));
 
 
             const timing = Date.now();
