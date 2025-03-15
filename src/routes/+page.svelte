@@ -56,7 +56,7 @@
 		);
 	}
 	function getFileProgress(currentState?: MetadataType) {
-		currentState?.paragraphInfo
+		return currentState?.paragraphInfo
 			.map(
 				(x) =>
 					Object.entries(x.judgment)
