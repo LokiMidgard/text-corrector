@@ -3,7 +3,7 @@
 	import Tree, { type TreeElement } from '$lib/client/tree.svelte';
 	import { trpc } from '$lib/trpc/client';
 	import { onMount, type Snippet } from 'svelte';
-	import Diff from './diff.svelte';
+	import Diff, { type MetadataType } from './diff.svelte';
 	import Textview from './textview.svelte';
 	import Pin from '$lib/client/pin.svelte';
 	import { DateTime, Duration } from 'luxon';
@@ -44,13 +44,18 @@
 	let connectedToBackend = $state(false);
 	let currentState: undefined | ReturnType<Model['getCorrection']> = $state();
 
-	let totelModelWork = $derived(
-		(currentState?.paragraphInfo.length ?? 0) *
-			(configuredModels.modelNames.length * (configuredModels.styles.length + 1) + 1)
-	);
+	let totelModelWork = $derived(getFileTotalProgress(currentState));
+	let calculatedModelWork = $derived(getFileProgress(currentState));
 	let stiles = $derived(new Set(configuredModels.styles));
 	let modelNames = $derived(new Set(configuredModels.modelNames));
-	let calculatedModelWork = $derived(
+
+	function getFileTotalProgress(currentState?: MetadataType) {
+		return (
+			(currentState?.paragraphInfo.length ?? 0) *
+			(configuredModels.modelNames.length * (configuredModels.styles.length + 1) + 1)
+		);
+	}
+	function getFileProgress(currentState?: MetadataType) {
 		currentState?.paragraphInfo
 			.map(
 				(x) =>
@@ -66,8 +71,8 @@
 						.reduce((p, c) => p + c, 0) + (x.corrected == undefined ? 0 : 1)
 				//
 			)
-			.reduce((p, c) => p + c, 0)
-	);
+			.reduce((p, c) => p + c, 0);
+	}
 
 	let now = $state(DateTime.now());
 	setInterval(() => {
@@ -97,6 +102,7 @@
 		});
 
 		model.onChange('content', (state) => {
+			console.log(`File ${state.path} changed with ${getFileProgress(state)}/${getFileTotalProgress(state)}`);
 			currentState = state;
 		});
 

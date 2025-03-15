@@ -144,19 +144,7 @@ export class Model {
 
             this.client = trpc();
 
-            this.client.onMessage.subscribe(undefined, {
-                onData: (data) => {
-                    if (data) {
-                        if (this.currentRunningPath != data.path) {
-                            this.currentRunningPath = data.path;
-                            this.lisenersCurrentPath.forEach((listener) => {
-                                listener(data.path);
-                            });
-                        }
-                        this.applyUpdate(data.path, data as NewCorrectionMetadata);
-                    }
-                }
-            });
+
             this.client.onModelChange.subscribe(undefined, {
                 onStarted: () => {
                     this.connectedToBackend = true;
@@ -193,11 +181,25 @@ export class Model {
 
 
             const remoteCorrections = await this.client.getCorrections.query();
-            for (const correction of remoteCorrections) {
-                const path = correction.path;
-                this.applyUpdate(path, correction as NewCorrectionMetadata);
-            }
 
+            await Promise.all(remoteCorrections.map(async (correction) => {
+                const path = correction.path;
+                await this.applyUpdate(path, correction as NewCorrectionMetadata);
+            }));
+
+            this.client.onMessage.subscribe(undefined, {
+                onData: (data) => {
+                    if (data) {
+                        if (this.currentRunningPath != data.path) {
+                            this.currentRunningPath = data.path;
+                            this.lisenersCurrentPath.forEach((listener) => {
+                                listener(data.path);
+                            });
+                        }
+                        this.applyUpdate(data.path, data as NewCorrectionMetadata);
+                    }
+                }
+            });
 
             return true;
         } catch {
