@@ -510,7 +510,10 @@
 					}
 
 					// get text in decoration
-					const text = this.getValueInRange(decoration.range);
+					const textInRange = this.getValueInRange(decoration.range);
+
+					const text = textInRange.trimEnd() + '\n';
+
 					this.metadata.paragraphInfo[index].edited = text;
 					const [newKey] = this.deltaDecorations(
 						[decoration.id],
@@ -529,7 +532,7 @@
 						indexLookUp[index] = newKey;
 						keyLookup[newKey] = index;
 					}
-					mainModel.localUpdate(path,this.metadata)
+					mainModel.localUpdate(path, this.metadata);
 				});
 			};
 			currentModel.handleTextEdits.bind(currentModel);
