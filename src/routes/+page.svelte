@@ -95,6 +95,11 @@
 		model.onChange('currentPath', (state) => {
 			currentState = model?.getCorrection(state);
 		});
+
+		model.onChange('content', (state) => {
+			currentState = state;
+		});
+
 		if (model.currentPath) {
 			currentState = model.getCorrection(model.currentPath);
 		}
