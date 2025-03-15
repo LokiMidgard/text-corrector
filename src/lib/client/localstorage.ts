@@ -90,7 +90,6 @@ export class Model {
     }
 
     constructor(ldb: typeof import('localdata').default) {
-        this.client = trpc();
         this.ldb = ldb;
     }
 
@@ -137,7 +136,7 @@ export class Model {
     }
 
     private async initClient() {
-        if (!this.client) {
+        if (this.client) {
             return true;
         }
         try {
