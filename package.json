@@ -38,7 +38,7 @@
 		"@fortawesome/free-regular-svg-icons": "^6.7.2",
 		"@fortawesome/free-solid-svg-icons": "^6.7.2",
 		"@fortawesome/svelte-fontawesome": "^0.2.3",
-		"@picocss/pico": "^2.0.6",
+		"@picocss/pico": "^2.1.1",
 		"@trpc/client": "^10.45.2",
 		"@trpc/server": "^10.45.2",
 		"@types/luxon": "^3.4.2",
