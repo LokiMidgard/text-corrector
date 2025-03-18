@@ -255,6 +255,9 @@ ${newParagraph.edited}
                     }
                 }
             }
+
+            meta.messages = newMetadata.messages;
+            meta.time_in_ms = newMetadata.time_in_ms;
         } else {
             this.models[path] = {
                 ...newMetadata,
