@@ -50,7 +50,7 @@ export const router = t.router({
         // filter out files that are not matched by the configured pattern
         const pathesOfInterest = files.filter((file) => pathFilter.test(file.path) && file.hasCorrection);
         const corrections = await Promise.all(pathesOfInterest.map(async (file) => {
-            const correction = await getCorrection(file.path);
+            const correction = await getCorrection({ path: file.path });
             return { ...correction, path: file.path };
         }));
 

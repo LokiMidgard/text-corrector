@@ -611,7 +611,7 @@ RuleConfidence: ${match.rule?.confidence}
 async function getOrCreateMetadta(path: string, cache: object = {}) {
 
     const createNewParagraphs = async () => {
-        const previousCorrection = await git.tryGetCorrection(path, 1, cache);
+        const previousCorrection = await git.tryGetCorrection({ path, depth: 1, cache });
 
         return paragraphsWithPrefixs(await git.getText(path, cache)).map((v) => {
             const original = formatMarkdown(v.text);
@@ -634,7 +634,7 @@ async function getOrCreateMetadta(path: string, cache: object = {}) {
     };
 
 
-    const metadata: git.NewCorrectionMetadata = (await git.tryGetCorrection(path, undefined, cache)) ?? {
+    const metadata: git.NewCorrectionMetadata = (await git.tryGetCorrection({ path, cache })) ?? {
         time_in_ms: 0,
         messages: [],
         paragraphInfo: await createNewParagraphs()

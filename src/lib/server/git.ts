@@ -114,9 +114,9 @@ export async function updateRepo(githubApiToken: string, repo: string, cache: ob
 
 
                             // get local and remote metadata
-                            const localMetadata = await getCorrection(spellcheckId, 'local', 'spellcheckID');
-                            const remoteMetadata = await getCorrection(spellcheckId, 'remote', 'spellcheckID');
-                            const commonParent = await getCorrection(spellcheckId, 'common parent', 'spellcheckID');
+                            const localMetadata = await getCorrection({ path: spellcheckId, type: 'local', pathType: 'spellcheckID' });
+                            const remoteMetadata = await getCorrection({ path: spellcheckId, type: 'remote', pathType: 'spellcheckID' });
+                            const commonParent = await getCorrection({ path: spellcheckId, type: 'common parent', pathType: 'spellcheckID' });
 
                             // merge metadata
                             const mergedMetadataParagarps = localMetadata.paragraphInfo.map((x, i) => [x, remoteMetadata.paragraphInfo[i], commonParent.paragraphInfo[i]] as const).map(([local, remote, common]) => {
@@ -628,14 +628,14 @@ export async function getSpellcheckId(path: string) {
     return oid;
 }
 
-export async function tryGetCorrection(path: string, depth: number = 0, cache: object = {}) {
+export async function tryGetCorrection({ path, depth = 0, cache = {} }: { path: string, depth?: number, cache?: object }) {
     if (await hasCorrection(path, depth, cache)) {
-        return await getCorrection(path, undefined, undefined, depth, cache);
+        return await getCorrection({ path, depth, cache });
     } else {
         return null;
     }
 }
-export async function getCorrection(path: string, type: 'local' | 'remote' | 'common parent' = 'local', pathType: 'filePath' | 'spellcheckID' = 'filePath', depth: number = 0, cache: object = {}): Promise<NewCorrectionMetadata> {
+export async function getCorrection({ path, type = 'local', pathType = 'filePath', depth = 0, cache = {} }: { path: string, type?: 'local' | 'remote' | 'common parent', pathType?: 'filePath' | 'spellcheckID', depth?: number, cache?: object }): Promise<NewCorrectionMetadata> {
     let oid: string;
     if (pathType == 'spellcheckID') {
         oid = path;
