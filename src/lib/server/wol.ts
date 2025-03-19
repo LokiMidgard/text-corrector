@@ -298,7 +298,7 @@ export async function checkRepo(): Promise<never> {
                 const currentId = git.getCurrentCommitId();
                 if (currentId != originalId) {
                     // ugly but it sholud work
-                    throw new Error('current Commit Changed RESTART');
+                    throw new Error(`current Commit Changed RESTART ${currentId} != ${originalId}`);
                 }
             }
 
