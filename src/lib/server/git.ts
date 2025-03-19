@@ -570,9 +570,12 @@ export async function hasCorrection(path: string, depth: number = 0, cache: obje
         const currentBlob = await git.readBlob({ fs, dir, filepath: path, oid: currentCommit, cache });
         const oid = currentBlob.oid;
         try {
+            console.log(`check if spellchekID ${oid} exists`);
             await git.resolveRef({ fs, dir, ref: `refs/spellcheck/${oid}` });
+            console.log(`spellchekID ${oid} exists`);
             return true;
         } catch {
+            console.log(`spellchekID ${oid} does not exist`);
             return false;
         }
     }
