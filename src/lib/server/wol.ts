@@ -294,7 +294,7 @@ export async function checkRepo(): Promise<never> {
             console.log(`Ordering for ${files.length} files took ${elapsedTime}`);
 
             const originalId = git.getCurrentCommitId();
-            const checkStillValid = async () => {
+            const checkStillValid = () => {
                 const currentId = git.getCurrentCommitId();
                 if (currentId != originalId) {
                     // ugly but it sholud work
@@ -650,7 +650,7 @@ async function correct(path: string) {
     const cache: object = {};
 
     const originalId = git.getCurrentCommitId();
-    const checkStillValid = async () => {
+    const checkStillValid = () => {
         const currentId = git.getCurrentCommitId();
         if (currentId != originalId) {
             // ugly but it sholud work
@@ -758,12 +758,12 @@ async function correct(path: string) {
                 metadata.messages = messages;
                 await git.correctText(path, metadata);
                 fireUpdate(path, metadata);
-                await checkStillValid();
+                checkStillValid();
             }
 
 
             for (const [desiredTitle, desired, styleIndex] of Object.entries(desiredStyles).map(([k, v], i) => [k, v, i] as const)) {
-                await checkStillValid();
+                checkStillValid();
 
 
                 const startBlock = now();
