@@ -640,8 +640,8 @@ export async function getCorrection(path: string, type: 'local' | 'remote' | 'co
     else {
         console.log(`resolve head`)
         const head = await git.resolveRef({ fs, dir, ref: 'HEAD' });
-        // const currentBlob = await git.readBlob({ fs, dir, filepath: path, oid: head });
-        oid = head;
+        const currentBlob = await git.readBlob({ fs, dir, filepath: path, oid: head, cache });
+        oid = currentBlob.oid;
     }
     console.log(`resolvig id ${oid}`);
     let correctionOid: string;
