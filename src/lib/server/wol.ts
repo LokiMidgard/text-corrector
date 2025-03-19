@@ -281,6 +281,9 @@ export async function checkRepo(): Promise<never> {
 
             const timing = Date.now();
             const fileOrdering = Object.fromEntries(await Promise.all(files.map(async ({ path }) => [path, await git.getShortestCommitDepth(path, cache)] as const)))
+            
+            console.log(`File ordering ${JSON.stringify(fileOrdering, undefined, 2)}`);
+
             const elapsedMs = Date.now() - timing;
 
             // we want to start with the oldest entry, the one with the longest commit depth

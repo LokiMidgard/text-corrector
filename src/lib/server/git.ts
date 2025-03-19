@@ -10,7 +10,7 @@ import type { BlockContent, DefinitionContent } from 'mdast';
 import http from 'isomorphic-git/http/web';
 import { fireUpdate } from '$lib/trpc/router';
 import { getDictionary } from './wol';
-import { paragrapInfo } from './configuration';
+import { paragrapInfo, pathFilter } from './configuration';
 
 const dir = 'repo';
 
@@ -81,7 +81,21 @@ export async function updateRepo(githubApiToken: string, repo: string, cache: ob
             }
         }
         const remoteRefs = await git.listServerRefs({ http, url: clone_url.href, prefix: 'refs/spellcheck/' });
+
+        // get list of all files to check
+        const currentSpellcheckIds =await Promise.all( (await listFiles(undefined, cache)).filter(file => pathFilter.test(file.path))
+            .map(x=>getSpellcheckId(x.path, cache)));    
+        
+
         for (const ref of remoteRefs) {
+
+            const spellcheckId =await ref.ref.substring('refs/spellcheck/'.length);
+            if(!currentSpellcheckIds.includes(spellcheckId)){
+                // this is not a spellcheck id we are interested in
+                // maybe we should delete it?
+                continue;
+            }
+
             console.log('fetching', ref.ref);
             const result = await git.fetch({
                 fs,
@@ -91,7 +105,6 @@ export async function updateRepo(githubApiToken: string, repo: string, cache: ob
                 cache,
             })
             if (result.fetchHead) {
-                const spellcheckId = ref.ref.substring('refs/spellcheck/'.length);
                 if ((await git.listRefs({ fs, dir, filepath: ref.ref })).length === 0) {
                     await git.writeRef({ fs, dir, ref: ref.ref, value: result.fetchHead, symbolic: false, force: true });
                     console.log('fetched new', result.fetchHead);
@@ -539,21 +552,36 @@ export async function getShortestCommitDepth(path: string, cache: object = {}) {
     const ref = await git.resolveRef({ fs, dir, ref: 'HEAD' });
     let lastDepth = 0;
 
+    const currentSpellcheckId = await getSpellcheckId(path, cache)
 
-    const log_of_file = (await git.log({ fs, dir, ref: 'HEAD', filepath: path, depth: 0, cache }))[0];
+
+
+
 
     // count the number of commits in from head to log_of_file.oid
     const oidToHandle: { oid: string, depth: number }[] = [{ oid: ref, depth: 0 }]
     while (oidToHandle.length > 0) {
         const [{ oid, depth }] = oidToHandle.splice(0, 1)!;
 
-        const parents = (await git.readCommit({ fs, dir, oid, cache })).commit.parent.map(oid => ({ oid, depth: depth + 1 }));
-        if (parents.some(x => x.oid == log_of_file.oid)) {
+
+        try {
+            const currentBlob = await git.readBlob({ fs, dir, filepath: path, oid, cache });
+            const pastSpellcheckId = currentBlob.oid;
+
+
+            if (pastSpellcheckId != currentSpellcheckId) {
+                return depth;
+            }
+
+            const parents = (await git.readCommit({ fs, dir, oid, cache })).commit.parent.map(oid => ({ oid, depth: depth + 1 }));
+
+            // let us store the depth if we runn out of parents
+            lastDepth = Math.max(lastDepth, depth);
+            oidToHandle.push(...parents);
+        } catch {
+            // file dos not exist here, so we find the depth of the commit
             return depth;
         }
-        // let us store the depth if we runn out of parents
-        lastDepth = Math.max(lastDepth, depth);
-        oidToHandle.push(...parents);
     }
     return lastDepth;
 }
@@ -660,9 +688,9 @@ export async function hasCorrection(path: string, depth: number = 0, cache: obje
     }
 }
 
-export async function getSpellcheckId(path: string) {
+export async function getSpellcheckId(path: string, cache: object = {}) {
     const head = await git.resolveRef({ fs, dir, ref: 'HEAD' });
-    const currentBlob = await git.readBlob({ fs, dir, filepath: path, oid: head });
+    const currentBlob = await git.readBlob({ fs, dir, filepath: path, oid: head, cache });
     const oid = currentBlob.oid;
     return oid;
 }
