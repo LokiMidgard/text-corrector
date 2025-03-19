@@ -293,9 +293,9 @@ export async function checkRepo(): Promise<never> {
                     `${Math.floor(elapsedMs / 60000)}m ${Math.floor((elapsedMs % 60000) / 1000)}s`;
             console.log(`Ordering for ${files.length} files took ${elapsedTime}`);
 
-            const originalId = git.getCurrentCommitId();
-            const checkStillValid = () => {
-                const currentId = git.getCurrentCommitId();
+            const originalId = await git.getCurrentCommitId();
+            const checkStillValid = async () => {
+                const currentId = await git.getCurrentCommitId();
                 if (currentId != originalId) {
                     // ugly but it sholud work
                     throw new Error(`current Commit Changed RESTART ${currentId} != ${originalId}`);
@@ -306,13 +306,13 @@ export async function checkRepo(): Promise<never> {
 
             // first check simple spelling and grammar with langtool (its faster)
             for (const file of files) {
-                checkStillValid();
+                await checkStillValid();
                 console.log(`check ${file.path}`);
                 workDone = await correctClassic(file.path) || workDone;
             }
             // then check with ollama
             for (const file of files) {
-                checkStillValid();
+                await checkStillValid();
                 console.log(`check ${file.path}`);
                 workDone = await correct(file.path) || workDone;
             }
@@ -649,9 +649,9 @@ async function correct(path: string) {
 
     const cache: object = {};
 
-    const originalId = git.getCurrentCommitId();
-    const checkStillValid = () => {
-        const currentId = git.getCurrentCommitId();
+    const originalId = await git.getCurrentCommitId();
+    const checkStillValid = async () => {
+        const currentId = await git.getCurrentCommitId();
         if (currentId != originalId) {
             // ugly but it sholud work
             throw new Error('current Commit Changed RESTART');
@@ -758,12 +758,12 @@ async function correct(path: string) {
                 metadata.messages = messages;
                 await git.correctText(path, metadata);
                 fireUpdate(path, metadata);
-                checkStillValid();
+                await checkStillValid();
             }
 
 
             for (const [desiredTitle, desired, styleIndex] of Object.entries(desiredStyles).map(([k, v], i) => [k, v, i] as const)) {
-                checkStillValid();
+                await checkStillValid();
 
 
                 const startBlock = now();
