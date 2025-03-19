@@ -291,7 +291,7 @@ export async function checkRepo(): Promise<never> {
                 elapsedMs < 60000 ?
                     `${(elapsedMs / 1000).toFixed(1)}s` :
                     `${Math.floor(elapsedMs / 60000)}m ${Math.floor((elapsedMs % 60000) / 1000)}s`;
-            console.log(`Ordering for ${files.length} files took ${elapsedTime}`);
+            console.log(`Ordering for ${files.length} files took ${elapsedTime}`, files.map(x=>x.path));
 
             const originalId = await git.getCurrentCommitId();
             const checkStillValid = async () => {

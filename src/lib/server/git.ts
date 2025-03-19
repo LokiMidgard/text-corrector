@@ -445,7 +445,6 @@ export async function correctText(path: string, metadata: NewCorrectionMetadata,
             commit: actualCommitData
         });
         lastCommit = commit;
-        console.log('commit', commit);
 
         await git.writeRef({ fs, dir, ref: `refs/spellcheck/${currentBlob.oid}`, value: commit, symbolic: false, force: true });
         fireUpdate(path, metadata);
@@ -512,7 +511,6 @@ export async function correctText(path: string, metadata: NewCorrectionMetadata,
             dir,
             commit: actualCommitData
         });
-        console.log('commit', commit);
 
         await git.writeRef({ fs, dir, ref: `refs/spellcheck/${originalOid}`, value: commit, symbolic: false, force: true });
         fireUpdate(path, metadata);
@@ -569,7 +567,6 @@ export async function getCorrectionOid(path: string, depth: number = 0, cache: o
     if (depth == 0) {
         const currentBlob = await git.readBlob({ fs, dir, filepath: path, oid: currentCommit, cache });
         const oid = currentBlob.oid;
-        console.log(`check if spellchekID ${oid} exists`);
         return await git.resolveRef({ fs, dir, ref: `refs/spellcheck/${oid}` });
     }
     depth--;
@@ -615,12 +612,9 @@ export async function hasCorrection(path: string, depth: number = 0, cache: obje
         const currentBlob = await git.readBlob({ fs, dir, filepath: path, oid: currentCommit, cache });
         const oid = currentBlob.oid;
         try {
-            console.log(`check if spellchekID ${oid} exists`);
             await git.resolveRef({ fs, dir, ref: `refs/spellcheck/${oid}` });
-            console.log(`spellchekID ${oid} exists`);
             return true;
         } catch {
-            console.log(`spellchekID ${oid} does not exist`);
             return false;
         }
     }
@@ -675,10 +669,8 @@ export async function getSpellcheckId(path: string) {
 
 export async function tryGetCorrection({ path, depth = 0, cache = {} }: { path: string, depth?: number, cache?: object }) {
     if (await hasCorrection(path, depth, cache)) {
-        console.log(`Correction found for ${path}`);
         return await getCorrection({ path, depth, cache });
     } else {
-        console.log(`No correction found for ${path}`);
         return null;
     }
 }
@@ -696,14 +688,11 @@ export async function getCorrection({ path, type = 'local', pathType = 'filePath
             oid = path;
         }
         else {
-            console.log(`resolve head`)
             const head = await git.resolveRef({ fs, dir, ref: 'HEAD' });
             const currentBlob = await git.readBlob({ fs, dir, filepath: path, oid: head, cache });
             oid = currentBlob.oid;
         }
-        console.log(`resolvig id ${oid}`);
         if (type == 'common parent') {
-            console.log(`Try to resolve common Parent`)
 
             const localOid = await git.resolveRef({ fs, dir, ref: `refs/spellcheck/${oid}` });
             const remoteOid = await git.resolveRef({ fs, dir, ref: `remotes/origin/refs/spellcheck/${oid}` });
@@ -712,7 +701,6 @@ export async function getCorrection({ path, type = 'local', pathType = 'filePath
 
         } else {
             const ref = type == 'remote' ? `remotes/origin/refs/spellcheck/${oid}` : `refs/spellcheck/${oid}`;
-            console.log(`Try to resolve ${ref}`)
             correctionOid = await git.resolveRef({ fs, dir, ref });
         }
 
