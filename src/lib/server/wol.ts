@@ -611,6 +611,7 @@ RuleConfidence: ${match.rule?.confidence}
 async function getOrCreateMetadta(path: string, cache: object = {}) {
 
     const createNewParagraphs = async () => {
+        console.log(`Create new paragraphs for ${path}`);
         const previousCorrection = await git.tryGetCorrection({ path, depth: 1, cache });
 
         return paragraphsWithPrefixs(await git.getText(path, cache)).map((v) => {

@@ -561,6 +561,51 @@ export async function getShortestCommitDepth(path: string, cache: object = {}) {
 }
 
 
+export async function getCorrectionOid(path: string, depth: number = 0, cache: object = {}) {
+    const head = await git.resolveRef({ fs, dir, ref: 'HEAD' });
+
+    // this is not correct, we do not want the correction from previous commit, but from previous correction
+    let currentCommit = head;
+    if (depth == 0) {
+        const currentBlob = await git.readBlob({ fs, dir, filepath: path, oid: currentCommit, cache });
+        const oid = currentBlob.oid;
+        console.log(`check if spellchekID ${oid} exists`);
+        return await git.resolveRef({ fs, dir, ref: `refs/spellcheck/${oid}` });
+    }
+    depth--;
+    {
+        // get the commit before the current commit
+        const commit = await git.readCommit({ fs, dir, oid: currentCommit, cache });
+        if (commit.commit.parent.length == 0) {
+            throw new Error('No parent found');
+        }
+        currentCommit = commit.commit.parent[0];
+    }
+
+    while (depth > 0) {
+
+        depth--;
+
+
+        // get the commit before the current commit
+        const commit = await git.readCommit({ fs, dir, oid: currentCommit, cache });
+        if (commit.commit.parent.length == 0) {
+            throw new Error('No parent found');
+        }
+
+
+        currentCommit = commit.commit.parent[0];
+    }
+
+    const currentBlob = await git.readBlob({ fs, dir, filepath: path, oid: currentCommit, cache });
+    const oid = currentBlob.oid;
+    try {
+        return await git.resolveRef({ fs, dir, ref: `refs/spellcheck/${oid}` });
+    } catch {
+        throw new Error(`No correction found for ${path}`);
+    }
+}
+
 export async function hasCorrection(path: string, depth: number = 0, cache: object = {}) {
     const head = await git.resolveRef({ fs, dir, ref: 'HEAD' });
 
@@ -630,50 +675,60 @@ export async function getSpellcheckId(path: string) {
 
 export async function tryGetCorrection({ path, depth = 0, cache = {} }: { path: string, depth?: number, cache?: object }) {
     if (await hasCorrection(path, depth, cache)) {
+        console.log(`Correction found for ${path}`);
         return await getCorrection({ path, depth, cache });
     } else {
+        console.log(`No correction found for ${path}`);
         return null;
     }
 }
 export async function getCorrection({ path, type = 'local', pathType = 'filePath', depth = 0, cache = {} }: { path: string, type?: 'local' | 'remote' | 'common parent', pathType?: 'filePath' | 'spellcheckID', depth?: number, cache?: object }): Promise<NewCorrectionMetadata> {
-    let oid: string;
-    if (pathType == 'spellcheckID') {
-        oid = path;
-    }
-    else {
-        console.log(`resolve head`)
-        const head = await git.resolveRef({ fs, dir, ref: 'HEAD' });
-        const currentBlob = await git.readBlob({ fs, dir, filepath: path, oid: head, cache });
-        oid = currentBlob.oid;
-    }
-    console.log(`resolvig id ${oid}`);
+
+
     let correctionOid: string;
-    if (type == 'common parent') {
-        console.log(`Try to resolve common Parent`)
-
-        const localOid = await git.resolveRef({ fs, dir, ref: `refs/spellcheck/${oid}` });
-        const remoteOid = await git.resolveRef({ fs, dir, ref: `remotes/origin/refs/spellcheck/${oid}` });
-        const [commonParentOid] = await git.findMergeBase({ fs, dir, oids: [localOid, remoteOid], cache }) as string[];
-        correctionOid = commonParentOid;
-
+    if (type == 'local' && pathType == 'filePath') {
+        correctionOid = await getCorrectionOid(path, depth, cache);
     } else {
-        const ref = type == 'remote' ? `remotes/origin/refs/spellcheck/${oid}` : `refs/spellcheck/${oid}`;
-        console.log(`Try to resolve ${ref}`)
-        correctionOid = await git.resolveRef({ fs, dir, ref });
-    }
 
-    if (!correctionOid) {
-        throw new Error(`Failed to find correction ${type} ${type == 'common parent' ? 'common parent' : ''} for ${path}`);
-    }
 
-    for (let i = 0; i < depth; i++) {
-        const commit = await git.readCommit({ fs, dir, oid: correctionOid, cache });
-        if (commit.commit.parent.length == 0) {
-            throw new Error("No perent fonud");
+        let oid: string;
+        if (pathType == 'spellcheckID') {
+            oid = path;
         }
-        correctionOid = commit.commit.parent[0];
-    }
+        else {
+            console.log(`resolve head`)
+            const head = await git.resolveRef({ fs, dir, ref: 'HEAD' });
+            const currentBlob = await git.readBlob({ fs, dir, filepath: path, oid: head, cache });
+            oid = currentBlob.oid;
+        }
+        console.log(`resolvig id ${oid}`);
+        if (type == 'common parent') {
+            console.log(`Try to resolve common Parent`)
 
+            const localOid = await git.resolveRef({ fs, dir, ref: `refs/spellcheck/${oid}` });
+            const remoteOid = await git.resolveRef({ fs, dir, ref: `remotes/origin/refs/spellcheck/${oid}` });
+            const [commonParentOid] = await git.findMergeBase({ fs, dir, oids: [localOid, remoteOid], cache }) as string[];
+            correctionOid = commonParentOid;
+
+        } else {
+            const ref = type == 'remote' ? `remotes/origin/refs/spellcheck/${oid}` : `refs/spellcheck/${oid}`;
+            console.log(`Try to resolve ${ref}`)
+            correctionOid = await git.resolveRef({ fs, dir, ref });
+        }
+
+        if (!correctionOid) {
+            throw new Error(`Failed to find correction ${type} ${type == 'common parent' ? 'common parent' : ''} for ${path}`);
+        }
+
+        for (let i = 0; i < depth; i++) {
+            const commit = await git.readCommit({ fs, dir, oid: correctionOid, cache });
+            if (commit.commit.parent.length == 0) {
+                throw new Error("No perent fonud");
+            }
+            correctionOid = commit.commit.parent[0];
+        }
+
+    }
     const decoder = new TextDecoder();
     const decode = (data: { blob: Uint8Array<ArrayBufferLike> } | undefined | null) => {
         if (data)
