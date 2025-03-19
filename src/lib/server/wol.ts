@@ -293,14 +293,26 @@ export async function checkRepo(): Promise<never> {
                     `${Math.floor(elapsedMs / 60000)}m ${Math.floor((elapsedMs % 60000) / 1000)}s`;
             console.log(`Ordering for ${files.length} files took ${elapsedTime}`);
 
+            const originalId = git.getCurrentCommitId();
+            const checkStillValid = async () => {
+                const currentId = git.getCurrentCommitId();
+                if (currentId != originalId) {
+                    // ugly but it sholud work
+                    throw new Error('current Commit Changed RESTART');
+                }
+            }
+
+
+
             // first check simple spelling and grammar with langtool (its faster)
             for (const file of files) {
+                checkStillValid();
                 console.log(`check ${file.path}`);
                 workDone = await correctClassic(file.path) || workDone;
-
             }
             // then check with ollama
             for (const file of files) {
+                checkStillValid();
                 console.log(`check ${file.path}`);
                 workDone = await correct(file.path) || workDone;
             }
@@ -596,12 +608,12 @@ RuleConfidence: ${match.rule?.confidence}
 
 }
 
-async function getOrCreateMetadta(path: string) {
+async function getOrCreateMetadta(path: string, cache: object = {}) {
 
     const createNewParagraphs = async () => {
-        const previousCorrection = await git.tryGetCorrection(path, 1);
+        const previousCorrection = await git.tryGetCorrection(path, 1, cache);
 
-        return paragraphsWithPrefixs(await git.getText(path)).map((v) => {
+        return paragraphsWithPrefixs(await git.getText(path, cache)).map((v) => {
             const original = formatMarkdown(v.text);
             const existingOld = previousCorrection?.paragraphInfo.filter(x => x.original == original)[0];
             if (existingOld) {
@@ -622,7 +634,7 @@ async function getOrCreateMetadta(path: string) {
     };
 
 
-    const metadata: git.NewCorrectionMetadata = (await git.tryGetCorrection(path)) ?? {
+    const metadata: git.NewCorrectionMetadata = (await git.tryGetCorrection(path, undefined, cache)) ?? {
         time_in_ms: 0,
         messages: [],
         paragraphInfo: await createNewParagraphs()
@@ -635,8 +647,18 @@ async function getOrCreateMetadta(path: string) {
 async function correct(path: string) {
 
 
+    const cache: object = {};
 
-    const metadata: git.NewCorrectionMetadata = await getOrCreateMetadta(path);
+    const originalId = git.getCurrentCommitId();
+    const checkStillValid = async () => {
+        const currentId = git.getCurrentCommitId();
+        if (currentId != originalId) {
+            // ugly but it sholud work
+            throw new Error('current Commit Changed RESTART');
+        }
+    }
+    const metadata: git.NewCorrectionMetadata = await getOrCreateMetadta(path, cache);
+
 
     const isEveryModelAndStyleProcessed = metadata.paragraphInfo.every(v => {
         // check if all models are present and all have a judgment with correct text and all desired styles
@@ -667,6 +689,7 @@ async function correct(path: string) {
     for (let modelIndex = 0; modelIndex < usedModels.length; modelIndex++) {
         const model = usedModels[modelIndex];
         for (let paragraphIndex = 0; paragraphIndex < metadata.paragraphInfo.length; paragraphIndex++) {
+
 
             // we get the next and previous paragraphs
             const text = metadata.paragraphInfo[paragraphIndex].original;
@@ -720,7 +743,7 @@ async function correct(path: string) {
                     currentParagraphInfo.judgment[model] = {
                         involvedCharacters: correctionResult.involvedCharacters,
                         text: {
-                            correction: correctionResult.corrected,
+                            correction: formatMarkdown(correctionResult.corrected),
                             alternative: {},
                         },
                         score: correctionResult.judgment,
@@ -735,10 +758,12 @@ async function correct(path: string) {
                 metadata.messages = messages;
                 await git.correctText(path, metadata);
                 fireUpdate(path, metadata);
+                await checkStillValid();
             }
 
 
             for (const [desiredTitle, desired, styleIndex] of Object.entries(desiredStyles).map(([k, v], i) => [k, v, i] as const)) {
+                await checkStillValid();
 
 
                 const startBlock = now();

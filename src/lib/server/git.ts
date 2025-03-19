@@ -211,11 +211,16 @@ export async function updateRepo(githubApiToken: string, repo: string, cache: ob
     }
 }
 
-export async function getText(path: string) {
+export async function getCurrentCommitId() {
+    const head = await git.resolveRef({ fs, dir, ref: 'HEAD' });
+    return head;
+}
+
+export async function getText(path: string, cache: object = {}) {
     const head = await git.resolveRef({ fs, dir, ref: 'HEAD' });
     const currentCommit = await git.resolveRef({ fs, dir, ref: head });
 
-    const currentBlob = await git.readBlob({ fs, dir, filepath: path, oid: currentCommit });
+    const currentBlob = await git.readBlob({ fs, dir, filepath: path, oid: currentCommit, cache });
     return new TextDecoder().decode(currentBlob.blob);
 }
 
@@ -620,32 +625,38 @@ export async function getSpellcheckId(path: string) {
     return oid;
 }
 
-export async function tryGetCorrection(path: string, depth: number = 0) {
-    if (await hasCorrection(path, depth)) {
-        return await getCorrection(path, undefined, undefined, depth);
+export async function tryGetCorrection(path: string, depth: number = 0, cache: object = {}) {
+    if (await hasCorrection(path, depth, cache)) {
+        return await getCorrection(path, undefined, undefined, depth, cache);
     } else {
         return null;
     }
 }
-export async function getCorrection(path: string, type: 'local' | 'remote' | 'common parent' = 'local', pathType: 'filePath' | 'spellcheckID' = 'filePath', depth: number = 0): Promise<NewCorrectionMetadata> {
+export async function getCorrection(path: string, type: 'local' | 'remote' | 'common parent' = 'local', pathType: 'filePath' | 'spellcheckID' = 'filePath', depth: number = 0, cache: object = {}): Promise<NewCorrectionMetadata> {
     let oid: string;
     if (pathType == 'spellcheckID') {
         oid = path;
     }
     else {
+        console.log(`resolve head`)
         const head = await git.resolveRef({ fs, dir, ref: 'HEAD' });
-        const currentBlob = await git.readBlob({ fs, dir, filepath: path, oid: head });
-        oid = currentBlob.oid;
+        // const currentBlob = await git.readBlob({ fs, dir, filepath: path, oid: head });
+        oid = head;
     }
+    console.log(`resolvig id ${oid}`);
     let correctionOid: string;
     if (type == 'common parent') {
+        console.log(`Try to resolve common Parent`)
+
         const localOid = await git.resolveRef({ fs, dir, ref: `refs/spellcheck/${oid}` });
         const remoteOid = await git.resolveRef({ fs, dir, ref: `remotes/origin/refs/spellcheck/${oid}` });
-        const [commonParentOid] = await git.findMergeBase({ fs, dir, oids: [localOid, remoteOid] }) as string[];
+        const [commonParentOid] = await git.findMergeBase({ fs, dir, oids: [localOid, remoteOid], cache }) as string[];
         correctionOid = commonParentOid;
 
     } else {
-        correctionOid = await git.resolveRef({ fs, dir, ref: type == 'remote' ? `remotes/origin/refs/spellcheck/${oid}` : `refs/spellcheck/${oid}` });
+        const ref = type == 'remote' ? `remotes/origin/refs/spellcheck/${oid}` : `refs/spellcheck/${oid}`;
+        console.log(`Try to resolve ${ref}`)
+        correctionOid = await git.resolveRef({ fs, dir, ref });
     }
 
     if (!correctionOid) {
@@ -653,7 +664,7 @@ export async function getCorrection(path: string, type: 'local' | 'remote' | 'co
     }
 
     for (let i = 0; i < depth; i++) {
-        const commit = await git.readCommit({ fs, dir, oid: correctionOid });
+        const commit = await git.readCommit({ fs, dir, oid: correctionOid, cache });
         if (commit.commit.parent.length == 0) {
             throw new Error("No perent fonud");
         }
@@ -668,7 +679,7 @@ export async function getCorrection(path: string, type: 'local' | 'remote' | 'co
             return null;
     };
 
-    const metadataString = decode(await git.readBlob({ fs, dir, oid: correctionOid, filepath: 'metadata' }));
+    const metadataString = decode(await git.readBlob({ fs, dir, oid: correctionOid, filepath: 'metadata', cache }));
     if (metadataString) {
         const metadataObj = JSON.parse(metadataString);
         const isOld = oldCorrectionParser.safeParse(metadataObj);

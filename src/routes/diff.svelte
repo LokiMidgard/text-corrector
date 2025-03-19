@@ -58,7 +58,7 @@
 	import { faFloppyDisk } from '@fortawesome/free-regular-svg-icons/faFloppyDisk';
 	import { faUpload } from '@fortawesome/free-solid-svg-icons/faUpload';
 
-	import { reduceDuration, renderMarkdown } from '$lib';
+	import { formatMarkdown, reduceDuration, renderMarkdown } from '$lib';
 	import type { NewCorrectionMetadata } from '$lib/server/git';
 	import { trpc } from '$lib/trpc/client';
 	import { DateTime, Duration, type _ToObjectUnit } from 'luxon';
@@ -591,7 +591,8 @@
 					if (newTextUnformated == undefined) {
 						throw new Error(`Cant find text for ${kind}`);
 					}
-					let newText = newTextUnformated;
+					// HACK Text should already be formated, but there seems to be some (prebugfix) that are not.
+					let newText = typeof kind =='object' ? formatMarkdown(newTextUnformated) :newTextUnformated;
 					const oldText = this.getValueInRange(
 						this.getDecorationRange(this.getDecorationKeyOfIndex(index)!)!
 					);
