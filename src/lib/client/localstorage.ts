@@ -240,6 +240,12 @@ export class Model {
                             // we have not edited it yet, so we can just take the new one
                             oldParagraphInfo.edited = newParagraph.edited;
                             oldParagraphInfo.editedOriginal = newParagraph.edited;
+                        } else if (oldParagraphInfo.editedOriginal == newParagraph.edited) {
+                            // if the remote is the same as oures before we done changes,
+                            // we keep the current
+                        } else if (newParagraph.edited == undefined) {
+                            // no changes from remote so we just keep our current
+
                         } else if (oldParagraphInfo.edited == newParagraph.edited || oldParagraphInfo.editedOriginal == newParagraph.edited) {
                             // our version is either the same as the server version before the edit or the same as the server version now, so we can just take the new one
                             oldParagraphInfo.edited = newParagraph.edited;
@@ -248,9 +254,9 @@ export class Model {
                             // we have edited it, but the server has also changed it
                             oldParagraphInfo.edited = `
 === LOCAL EDITED ===
-${oldParagraphInfo.edited}
+${oldParagraphInfo.edited ?? ''}
 === SERVER EDITED ===
-${newParagraph.edited}
+${newParagraph.edited ?? ''}
 === END ===`;
                             oldParagraphInfo.editedOriginal = newParagraph.edited;
                         }

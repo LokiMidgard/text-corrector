@@ -288,7 +288,25 @@ export async function checkRepo(): Promise<never> {
 
             // we want to start with the oldest entry, the one with the longest commit depth
             // assuming that newer files are less often changed then newer.
-            files.sort((a, b) => fileOrdering[b.path] - fileOrdering[a.path]);
+
+            // the ordering should be working if we assuem we are more or less up to date
+            // but if we have a huge amount backlock we may want to have the next
+            // we want to correct processed first
+            const priorityOrdering = [3, 4];
+
+            files.sort((a, b) => {
+                for (const index of priorityOrdering) {
+                    const stringPart = index <= 9
+                        ? `0${index}`
+                        : index.toString();
+                    if (a.path.includes(stringPart)) {
+                        return -1;
+                    } else if (b.path.includes(stringPart)) {
+                        return 1;
+                    }
+                }
+                return fileOrdering[b.path] - fileOrdering[a.path]
+            });
             const elapsedTime = elapsedMs < 1000 ?
                 `${elapsedMs}ms` :
                 elapsedMs < 60000 ?
