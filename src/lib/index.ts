@@ -11,9 +11,12 @@ import remarkBreakLine from 'remark-break-line';
 import remarkWiki from 'remark-wiki-link';
 import type { BlockContent, DefinitionContent, Paragraph, Root, RootContent } from 'mdast';
 import { Duration, type DurationLike, type DurationLikeObject } from "luxon";
+import type { NewCorrectionMetadata } from "./server/git";
 
 
 type timeUnit = 'years' | 'months' | 'days' | 'hours' | 'minutes' | 'seconds' | 'milliseconds';
+
+export type ModelConfiguration = { modelNames: string[]; styles: string[] };
 
 export function reduceDuration(duration: DurationLikeObject, options?: { skip?: readonly (timeUnit)[], keep?: readonly (timeUnit)[] }): Duration<true> {
     const copy: DurationLikeObject =
@@ -51,8 +54,35 @@ export function reduceDuration(duration: DurationLikeObject, options?: { skip?: 
         }
     }
     return Duration.fromDurationLike(copy);
-
 }
+
+export function getFileTotalProgress(currentState: NewCorrectionMetadata|undefined, configuredModels: ModelConfiguration) {
+    return (
+        (currentState?.paragraphInfo.length ?? 0) *
+        (configuredModels.modelNames.length * (configuredModels.styles.length + 1) + 1)
+    );
+}
+export function getFileProgress(currentState: NewCorrectionMetadata|undefined, configuredModels: ModelConfiguration) {
+    const modelNames = new Set(configuredModels.modelNames);
+    const stiles = new Set(configuredModels.styles);
+    return currentState?.paragraphInfo
+        .map(
+            (x) =>
+                Object.entries(x.judgment)
+                    .filter(([key]) => modelNames.has(key))
+                    .map(
+                        ([, x]) =>
+                            // stiele
+                            Object.entries(x.text.alternative)?.filter(([key]) => stiles.has(key)).length +
+                            // model corrections
+                            (x.text.correction == undefined ? 0 : 1)
+                    )
+                    .reduce((p, c) => p + c, 0) + (x.corrected == undefined ? 0 : 1)
+            //
+        )
+        .reduce((p, c) => p + c, 0);
+}
+
 
 export async function renderMarkdown(md: string): Promise<string> {
     const sanitizedHtml = await unified()

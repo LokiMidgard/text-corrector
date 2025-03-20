@@ -1,7 +1,7 @@
 // lib/trpc/router.ts
 import type { Context } from '$lib/trpc/context';
 import { initTRPC } from '@trpc/server';
-import { correctText, getCorrection, getCurrentCommitData, getText, listFiles, newCorrectionParser, setText, tryGetCorrection, type NewCorrectionMetadata } from '../server/git';
+import { correctText, getCorrection, getCurrentCommitData, getText, listFiles, newCorrectionParser, setText, type NewCorrectionMetadata } from '../server/git';
 import { z } from 'zod';
 import { observable } from '@trpc/server/observable';
 import EventEmitter from 'events';
@@ -16,16 +16,20 @@ const ee = new EventEmitter();
 
 
 
-export type UpdateData = NewCorrectionMetadata & { path: string };
+export type UpdateData = NewCorrectionMetadata & { path: string, isCurrentRunning:boolean };
 
 let lastUpdate: UpdateData | null = null;
 
-export function fireUpdate(path: string, metadata: NewCorrectionMetadata) {
-    lastUpdate = {
-        path,
+export function fireUpdate(path: string, metadata: NewCorrectionMetadata, isCurrentRunning: boolean) {
+    const data = {
+        path, 
+        isCurrentRunning,
         ...metadata,
     };
-    ee.emit('update', lastUpdate)
+    if(isCurrentRunning){
+        lastUpdate = data;
+    }
+    ee.emit('update', data)
 }
 
 let lastModels: { modelNames: string[], styles: string[] } = { modelNames: [], styles: [] };

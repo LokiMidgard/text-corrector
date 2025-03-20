@@ -189,7 +189,7 @@ export class Model {
             this.client.onMessage.subscribe(undefined, {
                 onData: (data) => {
                     if (data) {
-                        if (this.currentRunningPath != data.path) {
+                        if (data.isCurrentRunning && this.currentRunningPath != data.path) {
                             this.currentRunningPath = data.path;
                             this.lisenersCurrentPath.forEach((listener) => {
                                 listener(data.path);

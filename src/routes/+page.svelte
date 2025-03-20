@@ -9,8 +9,9 @@
 	import { DateTime, Duration } from 'luxon';
 	import type { UpdateData } from '$lib/trpc/router';
 	import '$lib/default.scss';
-	import { reduceDuration } from '$lib';
+	import { getFileProgress, getFileTotalProgress, reduceDuration } from '$lib';
 	import { Model } from '$lib/client/localstorage';
+	import type { NewCorrectionMetadata } from '$lib/server/git';
 
 	let open = $state(true);
 
@@ -44,35 +45,8 @@
 	let connectedToBackend = $state(false);
 	let currentState: undefined | ReturnType<Model['getCorrection']> = $state();
 
-	let totelModelWork = $derived(getFileTotalProgress(currentState));
-	let calculatedModelWork = $derived(getFileProgress(currentState));
-	let stiles = $derived(new Set(configuredModels.styles));
-	let modelNames = $derived(new Set(configuredModels.modelNames));
-
-	function getFileTotalProgress(currentState?: MetadataType) {
-		return (
-			(currentState?.paragraphInfo.length ?? 0) *
-			(configuredModels.modelNames.length * (configuredModels.styles.length + 1) + 1)
-		);
-	}
-	function getFileProgress(currentState?: MetadataType) {
-		return currentState?.paragraphInfo
-			.map(
-				(x) =>
-					Object.entries(x.judgment)
-						.filter(([key]) => modelNames.has(key))
-						.map(
-							([, x]) =>
-								// stiele
-								Object.entries(x.text.alternative)?.filter(([key]) => stiles.has(key)).length +
-								// model corrections
-								(x.text.correction == undefined ? 0 : 1)
-						)
-						.reduce((p, c) => p + c, 0) + (x.corrected == undefined ? 0 : 1)
-				//
-			)
-			.reduce((p, c) => p + c, 0);
-	}
+	let totelModelWork = $derived(getFileTotalProgress(currentState, configuredModels));
+	let calculatedModelWork = $derived(getFileProgress(currentState, configuredModels));
 
 	let now = $state(DateTime.now());
 	setInterval(() => {
@@ -102,7 +76,9 @@
 		});
 
 		model.onChange('content', (state) => {
-			console.log(`File ${state.path} changed with ${getFileProgress(state)}/${getFileTotalProgress(state)}`);
+			console.log(
+				`File ${state.path} changed with ${getFileProgress(state,configuredModels)}/${getFileTotalProgress(state,configuredModels)}`
+			);
 			currentState = state;
 		});
 

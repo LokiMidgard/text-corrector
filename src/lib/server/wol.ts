@@ -11,7 +11,7 @@ import * as git from '$lib/server/git'
 import { fireUpdate, setModelConiguration } from '$lib/trpc/router';
 import { zodToJsonSchema } from "zod-to-json-schema";
 
-import { formatMarkdown, transformFromAst, transformToAst } from '$lib';
+import { formatMarkdown, getFileProgress, getFileTotalProgress, transformFromAst, transformToAst } from '$lib';
 import path from 'path';
 import { env, fetchOptions, pathFilter, wake, type NewParagrapInfo } from './configuration';
 import { getLanguageToolResult, type LanguageToolResult } from './languagetool';
@@ -281,7 +281,7 @@ export async function checkRepo(): Promise<never> {
 
             const timing = Date.now();
             const fileOrdering = Object.fromEntries(await Promise.all(files.map(async ({ path }) => [path, await git.getShortestCommitDepth(path, cache)] as const)))
-            
+
             console.log(`File ordering ${JSON.stringify(fileOrdering, undefined, 2)}`);
 
             const elapsedMs = Date.now() - timing;
@@ -294,7 +294,7 @@ export async function checkRepo(): Promise<never> {
                 elapsedMs < 60000 ?
                     `${(elapsedMs / 1000).toFixed(1)}s` :
                     `${Math.floor(elapsedMs / 60000)}m ${Math.floor((elapsedMs % 60000) / 1000)}s`;
-            console.log(`Ordering for ${files.length} files took ${elapsedTime}`, files.map(x=>x.path));
+            console.log(`Ordering for ${files.length} files took ${elapsedTime}`, files.map(x => x.path));
 
             const originalId = await git.getCurrentCommitId();
             const checkStillValid = async () => {
@@ -418,7 +418,8 @@ async function correctClassic(path: string) {
     const metadata: git.NewCorrectionMetadata = await getOrCreateMetadta(path);
     console.log(`Correct langtool ${path} with ${metadata.paragraphInfo.length}`);
     if (metadata.paragraphInfo.every(v => {
-        return v.corrected?.text != undefined;
+        return v.corrected?.text != undefined
+            ;
     })) {
         // already corrected
         console.log(`Already corrected ${path}`);
@@ -431,8 +432,7 @@ async function correctClassic(path: string) {
     metadata.messages = messages;
 
 
-    // need to get ast from original so the paragraph count is correct
-    fireUpdate(path, metadata);
+    fireUpdate(path, metadata, true);
 
     const dictionary = await getDictionary();
 
@@ -604,8 +604,8 @@ RuleConfidence: ${match.rule?.confidence}
             corrections: [...entrys],
         };
     }
-    await git.correctText(path, metadata);
-    fireUpdate(path, metadata);
+    await git.correctText(path, true, metadata);
+    fireUpdate(path, metadata, true);
 
     return true;
 
@@ -663,17 +663,12 @@ async function correct(path: string) {
     }
     const metadata: git.NewCorrectionMetadata = await getOrCreateMetadta(path, cache);
 
+    const isEveryModelAndStyleProcessed =
+        (getFileProgress(metadata, { modelNames: usedModels, styles: Object.keys(desiredStyles) }) ?? 0) >= (getFileTotalProgress(metadata, { modelNames: usedModels, styles: Object.keys(desiredStyles) }));
 
-    const isEveryModelAndStyleProcessed = metadata.paragraphInfo.every(v => {
-        // check if all models are present and all have a judgment with correct text and all desired styles
-        return usedModels.every(model => Object.keys(v.judgment ?? {}).includes(model))
-            && Object.values(v.judgment ?? {}).every(j => {
-                return Object.keys(desiredStyles ?? {}).every(style => Object.keys(j.text.alternative).includes(style));
-            });
-    });
     if (isEveryModelAndStyleProcessed) {
         // already corrected
-        // console.log(`Already corrected ${path}`);
+        // technically this is not correct since we also check if the langtool is done, but that should be done already at this point
         return false;
     }
     console.log(`Correct ${path} with ${metadata.paragraphInfo.length} paragraphs and [${usedModels.join(', ')}] models`);
@@ -685,7 +680,7 @@ async function correct(path: string) {
 
 
     // need to get ast from original so the paragraph count is correct
-    fireUpdate(path, metadata);
+    fireUpdate(path, metadata, true);
 
 
 
@@ -760,8 +755,8 @@ async function correct(path: string) {
                 metadata.time_in_ms += currentTime;
 
                 metadata.messages = messages;
-                await git.correctText(path, metadata);
-                fireUpdate(path, metadata);
+                await git.correctText(path, true, metadata);
+                fireUpdate(path, metadata, true);
                 await checkStillValid();
             }
 
@@ -802,8 +797,8 @@ async function correct(path: string) {
                 metadata.time_in_ms += currentTime;
 
                 metadata.messages = messages;
-                await git.correctText(path, metadata);
-                fireUpdate(path, metadata);
+                await git.correctText(path, true, metadata);
+                fireUpdate(path, metadata, true);
 
             }
         }

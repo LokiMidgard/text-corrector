@@ -83,14 +83,14 @@ export async function updateRepo(githubApiToken: string, repo: string, cache: ob
         const remoteRefs = await git.listServerRefs({ http, url: clone_url.href, prefix: 'refs/spellcheck/' });
 
         // get list of all files to check
-        const currentSpellcheckIds =await Promise.all( (await listFiles(undefined, cache)).filter(file => pathFilter.test(file.path))
-            .map(x=>getSpellcheckId(x.path, cache)));    
-        
+        const currentSpellcheckIds = await Promise.all((await listFiles(undefined, cache)).filter(file => pathFilter.test(file.path))
+            .map(x => getSpellcheckId(x.path, cache)));
+
 
         for (const ref of remoteRefs) {
 
-            const spellcheckId =await ref.ref.substring('refs/spellcheck/'.length);
-            if(!currentSpellcheckIds.includes(spellcheckId)){
+            const spellcheckId = await ref.ref.substring('refs/spellcheck/'.length);
+            if (!currentSpellcheckIds.includes(spellcheckId)) {
                 // this is not a spellcheck id we are interested in
                 // maybe we should delete it?
                 continue;
@@ -203,7 +203,7 @@ export async function updateRepo(githubApiToken: string, repo: string, cache: ob
 
                             const bot = getBotCommitDate();
 
-                            await correctText(spellcheckId, mergedMetadata, {
+                            await correctText(spellcheckId,false, mergedMetadata, {
                                 author: bot,
                                 committer: bot,
                                 message: `Merged ${spellcheckId}`,
@@ -359,7 +359,7 @@ export type NewCorrectionMetadata = z.infer<typeof newCorrectionParser> & {
     messages: Array<BlockContent | DefinitionContent>[];
 };
 
-export async function correctText(path: string, metadata: NewCorrectionMetadata, commitData?: { message?: string } & Omit<git.CommitObject, 'message' | 'parent' | 'tree'>, type: 'fileChange' | 'merge' = 'fileChange') {
+export async function correctText(path: string, isCurrentRunning: boolean, metadata: NewCorrectionMetadata, commitData?: { message?: string } & Omit<git.CommitObject, 'message' | 'parent' | 'tree'>, type: 'fileChange' | 'merge' = 'fileChange') {
 
     const corrected = metadata.paragraphInfo.map((paragraph) => {
         if (paragraph.selectedText == undefined) {
@@ -460,7 +460,7 @@ export async function correctText(path: string, metadata: NewCorrectionMetadata,
         lastCommit = commit;
 
         await git.writeRef({ fs, dir, ref: `refs/spellcheck/${currentBlob.oid}`, value: commit, symbolic: false, force: true });
-        fireUpdate(path, metadata);
+        fireUpdate(path, metadata,isCurrentRunning);
         await git.push({
             fs,
             dir,
@@ -526,7 +526,7 @@ export async function correctText(path: string, metadata: NewCorrectionMetadata,
         });
 
         await git.writeRef({ fs, dir, ref: `refs/spellcheck/${originalOid}`, value: commit, symbolic: false, force: true });
-        fireUpdate(path, metadata);
+        fireUpdate(path, metadata,isCurrentRunning);
         await git.push({
             fs,
             dir,

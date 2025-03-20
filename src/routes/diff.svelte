@@ -6,7 +6,10 @@
 	>;
 
 	// data.paragraphInfo[0].edited
-	export type MetadataType = UpdateData & { timestamp: Record<_ToObjectUnit, number> } & {
+	export type MetadataType = NewCorrectionMetadata & {
+		path: string;
+		timestamp: Record<_ToObjectUnit, number>;
+	} & {
 		paragraphInfo: { editedOriginal?: string }[];
 	};
 	export type ModelDiagnostic = Exclude<
@@ -592,7 +595,8 @@
 						throw new Error(`Cant find text for ${kind}`);
 					}
 					// HACK Text should already be formated, but there seems to be some (prebugfix) that are not.
-					let newText = typeof kind =='object' ? formatMarkdown(newTextUnformated) :newTextUnformated;
+					let newText =
+						typeof kind == 'object' ? formatMarkdown(newTextUnformated) : newTextUnformated;
 					const oldText = this.getValueInRange(
 						this.getDecorationRange(this.getDecorationKeyOfIndex(index)!)!
 					);
