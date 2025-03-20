@@ -183,6 +183,7 @@ export class Model {
 
             await Promise.all(remoteCorrections.map(async (correction) => {
                 const path = correction.path;
+                console.log('Found inital correction', path);
                 await this.applyUpdate(path, correction as NewCorrectionMetadata);
             }));
 
@@ -191,6 +192,7 @@ export class Model {
                     if (data) {
                         if (data.isCurrentRunning && this.currentRunningPath != data.path) {
                             this.currentRunningPath = data.path;
+                            console.log('Current running path changed', data.path);
                             this.lisenersCurrentPath.forEach((listener) => {
                                 listener(data.path);
                             });

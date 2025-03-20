@@ -12,6 +12,7 @@
 	import { getFileProgress, getFileTotalProgress, reduceDuration } from '$lib';
 	import { Model } from '$lib/client/localstorage';
 	import type { NewCorrectionMetadata } from '$lib/server/git';
+	import { stat } from 'fs';
 
 	let open = $state(true);
 
@@ -77,9 +78,11 @@
 
 		model.onChange('content', (state) => {
 			console.log(
-				`File ${state.path} changed with ${getFileProgress(state,configuredModels)}/${getFileTotalProgress(state,configuredModels)}`
+				`File ${state.path} changed with ${getFileProgress(state, configuredModels)}/${getFileTotalProgress(state, configuredModels)}`
 			);
-			currentState = state;
+			if (currentState?.path === state.path) {
+				currentState = state;
+			}
 		});
 
 		if (model.currentPath) {
