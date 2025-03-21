@@ -181,11 +181,6 @@ export class Model {
 
             const remoteCorrections = await this.client.getCorrections.query();
 
-            await Promise.all(remoteCorrections.map(async (correction) => {
-                const path = correction.path;
-                console.log('Found inital correction', path);
-                await this.applyUpdate(path, correction as NewCorrectionMetadata);
-            }));
 
             this.client.onMessage.subscribe(undefined, {
                 onData: (data) => {
@@ -201,6 +196,13 @@ export class Model {
                     }
                 }
             });
+
+            await Promise.all(remoteCorrections.map(async (correction) => {
+                const path = correction.path;
+                console.log('Found inital correction', path);
+                await this.applyUpdate(path, correction as NewCorrectionMetadata);
+            }));
+
 
             return true;
         } catch {
