@@ -147,7 +147,7 @@ export const router = t.router({
             timezoneOffset: new Date().getTimezoneOffset()
         };
         try {
-            await correctText(input.path, input.metadata, { ...input.commitDetails, committer, author: committer });
+            await correctText(input.path, false,input.metadata, { ...input.commitDetails, committer, author: committer });
 
         } catch (error) {
             console.error('updateText', error);
