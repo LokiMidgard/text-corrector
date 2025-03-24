@@ -150,7 +150,7 @@ export const router = t.router({
             await correctText(input.path, false,input.metadata, { ...input.commitDetails, committer, author: committer });
 
         } catch (error) {
-            console.error('updateText', error);
+            console.error(`Faild to update text wit \n${JSON.stringify(input, undefined,2)}\n\n`, error);
             throw error;
         }
     }),
