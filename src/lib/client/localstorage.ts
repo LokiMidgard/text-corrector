@@ -215,12 +215,17 @@ export class Model {
         if (meta) {
             meta.timestamp = DateTime.now().toObject();
             // we need to merge the  data
-            for (let i = 0; i < newMetadata.paragraphInfo.length; i++) {
+            for (let i = 0; i < Math.max(newMetadata.paragraphInfo.length, meta.paragraphInfo.length); i++) {
                 const newParagraph = newMetadata.paragraphInfo[i];
                 const oldParagraphInfo = meta.paragraphInfo[i];
 
-
-                if (oldParagraphInfo.original != newParagraph.original) {
+                if (oldParagraphInfo == undefined) {
+                    // we have a new paragraph
+                    meta.paragraphInfo.push(newParagraph);
+                } else if (newParagraph == undefined) {
+                    // we have a deleted paragraph  
+                    meta.paragraphInfo.splice(i, 1);
+                } else if (oldParagraphInfo.original != newParagraph.original) {
                     // we have a new original text, so everything we done so far is obsolete
                     oldParagraphInfo.edited = newParagraph.edited;
                     oldParagraphInfo.editedOriginal = newParagraph.edited;
