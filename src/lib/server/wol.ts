@@ -292,7 +292,7 @@ export async function checkRepo(): Promise<never> {
             // the ordering should be working if we assuem we are more or less up to date
             // but if we have a huge amount backlock we may want to have the next
             // we want to correct processed first
-            const priorityOrdering = [3, 4];
+            const priorityOrdering = [ ];
 
             files.sort((a, b) => {
                 for (const index of priorityOrdering) {
