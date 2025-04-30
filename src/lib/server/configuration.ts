@@ -45,7 +45,7 @@ export type NewParagrapInfo = z.infer<typeof paragrapInfo>;
 
 
 
-import * as svelteEnve from '$env/static/private'
+import * as svelteEnve from '$env/dynamic/private'
 
 import { z } from 'zod';
 import ping from 'ping';
@@ -156,7 +156,7 @@ export async function wake({ ip, mac, isHealthy }: { ip: string, mac: string, is
     while (!state.alive) {
         // try for 20 seconds
         if (Date.now() - startTime > 20000) {
-            console.error('Failed to wake up');
+            console.error(`Failed to wake up ${mac} at ${ip}`);
             throw new Error('Failed to wake up');
 
         }
