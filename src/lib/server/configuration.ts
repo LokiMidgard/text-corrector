@@ -13,8 +13,8 @@ export const paragrapInfo = z.object({
             replacedWith: z.string().optional(),
             shortMessage: z.string(),
             rule: z.object({
-                category:z.string(),
-                id:z.string(),
+                category: z.string(),
+                id: z.string(),
                 confidence: z.number().optional(),
             }).optional(),
             offset: z.number(),
@@ -96,6 +96,37 @@ if (os.platform() == "win32") {
 
 console.log()
 export const env = envParser.parse({ ...svelteEnve, ...process.env });
+
+
+const keysToPrint: (keyof Env)[] = [
+    'OLLAMA_HOST',
+    'OLLAMA_PROTOCOL',
+    'OLLAMA_PORT',
+    'OLLAMA_MAC',
+    'OLLAMA_IP',
+
+    'LANGUAGETOOL_HOST',
+    'LANGUAGETOOL_PROTOCOL',
+    'LANGUAGETOOL_PORT',
+    'LANGUAGETOOL_MAC',
+    'LANGUAGETOOL_IP',
+
+    'REPO',
+    'PATH_FILTER',
+    'MODEL',
+    'CONTEXT_WINDOW'
+];
+
+console.log();
+console.log('-----------------------------------');
+console.log('Environment Variables:');
+for (const key in env) {
+    if (keysToPrint.includes(key as keyof Env)) {
+        console.log(`\t${key}: ${env[key as keyof Env]}`);
+    }
+}
+console.log('-----------------------------------');
+console.log();
 
 
 
