@@ -734,14 +734,14 @@ async function correct(path: string) {
     const metadata: git.NewCorrectionMetadata = await getOrCreateMetadta(path, cache);
 
     const isEveryModelAndStyleProcessed =
-        (getFileProgress(metadata, { modelNames: usedModels.map(x=>x.model), styles: Object.keys(desiredStyles) }) ?? 0) >= (getFileTotalProgress(metadata, { modelNames: usedModels.map(x=>x.model), styles: Object.keys(desiredStyles) }));
+        (getFileProgress(metadata, { modelNames: usedModels.map(x => x.model), styles: Object.keys(desiredStyles) }) ?? 0) >= (getFileTotalProgress(metadata, { modelNames: usedModels.map(x => x.model), styles: Object.keys(desiredStyles) }));
 
     if (isEveryModelAndStyleProcessed) {
         // already corrected
         // technically this is not correct since we also check if the langtool is done, but that should be done already at this point
         return false;
     }
-    console.log(`Correct ${path} with ${metadata.paragraphInfo.length} paragraphs and [${usedModels.join(', ')}] models`);
+    console.log(`Correct ${path} with ${metadata.paragraphInfo.length} paragraphs and [${usedModels.map(({ model, context_window }) => context_window ? `${model} (${context_window})` : model).join(', ')}] models`);
 
 
     const messages: Array<BlockContent | DefinitionContent>[] = [];
@@ -756,7 +756,7 @@ async function correct(path: string) {
 
     await createModels();
     for (let modelIndex = 0; modelIndex < usedModels.length; modelIndex++) {
-        const {model} = usedModels[modelIndex];
+        const { model } = usedModels[modelIndex];
 
 
         // check if we need to do something in this model
