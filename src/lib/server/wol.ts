@@ -418,12 +418,25 @@ async function RunModel(model: `general-correction-${string}` | `general-alterna
         console.log('\n');
         const correctionJsonText = parts.join('');
 
+        // fix encoding errors like <0x6E>
+        const correctionJsonTextFixed = correctionJsonText.replace(/<0x[0-9A-Fa-f]{2}>/g, (match) => {
+            const charCode = parseInt(match.slice(3, -1), 16);
+            return String.fromCharCode(charCode);
+        });
 
-        const parsed = parser.safeParse(JSON.parse(correctionJsonText));
+
+        const parsed = parser.safeParse(JSON.parse(correctionJsonTextFixed));
         if (parsed.success) { // this should not fail, since ollama already validated against this schema
             return parsed.data;
         }
         else {
+            const errorPath = 'faild.json';
+            // check if we already have a sample and wirte it to a file if not
+
+            if (!fs.existsSync(errorPath)) {
+                fs.writeFileSync(errorPath, JSON.stringify(correctionJsonTextFixed, undefined, 2));
+            }
+
             console.error(`Unable to parse result from model ${model} with input:\n${JSON.stringify(input, undefined, 2)}\nand output:\n${correctionJsonText}`);
         }
     }
