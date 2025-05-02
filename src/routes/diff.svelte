@@ -167,7 +167,8 @@
 						return [x.original, 'original'] as const;
 					}
 				})
-				.map(([text, type]) => {
+				.map(([textOrObject, type]) => {
+					const text = typeof textOrObject == 'string' ? textOrObject : textOrObject.text;
 					if (text.endsWith('\n')) {
 						return [text, type] as const;
 					} else {
@@ -405,7 +406,7 @@
 						for (let j = element.corrected.corrections.length - 1; j >= 0; j--) {
 							const diagnosticToCheck = element.corrected.corrections[j];
 							if (diagnosticToCheck.original == original.original) {
-								replaceText(element.corrected, diagnosticToCheck, original.original);
+								replaceText(element.corrected, diagnosticToCheck, original.original!);
 
 								// remove the current diagnostic
 								element.corrected.corrections.splice(j, 1);
@@ -589,7 +590,10 @@
 									: kind[1] == 'correction'
 										? info.judgment[kind[0]].text.correction
 										: kind[1] == 'alternative'
-											? info.judgment[kind[0]].text.alternative[kind[2]]
+											? typeof info.judgment[kind[0]].text.alternative[kind[2]] === 'string'
+												? (info.judgment[kind[0]].text.alternative[kind[2]] as string)
+												: (info.judgment[kind[0]].text.alternative[kind[2]] as { text: string })
+														.text
 											: undefined;
 					if (newTextUnformated == undefined) {
 						throw new Error(`Cant find text for ${kind}`);

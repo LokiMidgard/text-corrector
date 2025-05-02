@@ -1,6 +1,6 @@
 import type { editor, languages } from 'monaco-editor';
 import { isCorrectedModel, type changeDiagnosticOperation, type CorrecedModel, type ModelDiagnostic, type ParagraphKind } from '../../routes/diff.svelte';
-import { renderMarkdown } from '$lib';
+import { msToHumanReadable, renderMarkdown } from '$lib';
 
 let MonacoPromise: Promise<typeof import('monaco-editor')> | undefined;
 
@@ -356,12 +356,16 @@ export async function monaco_init() {
                 const subList = document.createElement('ul');
                 item.appendChild(subList);
 
-                Object.keys(paragraphInfo.judgment[modelName].text.alternative).forEach((alternative) => {
+                Object.entries(paragraphInfo.judgment[modelName].text.alternative).forEach(([alternative, value]) => {
                     const subItem = document.createElement('li');
                     subList.appendChild(subItem);
                     const subButton = document.createElement('button');
                     subItem.appendChild(subButton);
-                    subButton.innerText = `Formulirung ${alternative}`;
+                    if (typeof value !== 'string') {
+                        subButton.innerText = `Formulirung ${alternative} (${msToHumanReadable(value.duration_ms)}${value.prompt_tokens != undefined ? `, ${value.prompt_tokens} tokens` : ''}})`;
+                    } else {
+                        subButton.innerText = `Formulirung ${alternative}`;
+                    }
                     subButton.classList.add('text');
                     const [newModelName, newKind, newAlternative] = currentKind;
                     if (newModelName === modelName && newKind === 'alternative' && newAlternative === alternative) {

@@ -56,13 +56,13 @@ export function reduceDuration(duration: DurationLikeObject, options?: { skip?: 
     return Duration.fromDurationLike(copy);
 }
 
-export function getFileTotalProgress(currentState: NewCorrectionMetadata|undefined, configuredModels: ModelConfiguration) {
+export function getFileTotalProgress(currentState: NewCorrectionMetadata | undefined, configuredModels: ModelConfiguration) {
     return (
         (currentState?.paragraphInfo.length ?? 0) *
         (configuredModels.modelNames.length * (configuredModels.styles.length + 1) + 1)
     );
 }
-export function getFileProgress(currentState: NewCorrectionMetadata|undefined, configuredModels: ModelConfiguration) {
+export function getFileProgress(currentState: NewCorrectionMetadata | undefined, configuredModels: ModelConfiguration) {
     const modelNames = new Set(configuredModels.modelNames);
     const stiles = new Set(configuredModels.styles);
     return currentState?.paragraphInfo
@@ -136,3 +136,16 @@ export const transformFromAst = (ast: Root) => unified()
     .stringify(ast)
     ;
 
+
+
+export function msToHumanReadable(durattion_in_ms: number): string {
+    const duration = reduceDuration({
+        milliseconds: durattion_in_ms,
+        seconds: 0,
+        minutes: 0,
+        hours: 0,
+    }, { skip: ['milliseconds'] });
+    const formattedDuration = duration.toFormat("hh:mm:ss");
+    console.debug("formattedDuration", durattion_in_ms, formattedDuration);
+    return formattedDuration;
+}

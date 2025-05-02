@@ -234,13 +234,31 @@ async function createModels() {
     for (const model of usedModels) {
         const models = await ollama.list();
         const context_window = model_properties[model]?.context_window;
-        const modelNameCorrection = `general-correction-${model}`;
-        const modelNameAlternation = `general-alternation-${model}`;
+        const modelNameCorrection = `general-correction-${model}` as const;
+        const modelNameAlternation = `general-alternation-${model}` as const;
         const correctionSystem = correctionSmystem("Jugendbücher");
         const alternationSystem = alternationSmystem("Jugendbücher");
 
-        const updateModel = async (modelName: string, system: string) => {
+        const updateModel = async (modelName: `general-correction-${string}` | `general-alternation-${string}`, system: string) => {
             if (models.models.some(m => m.name == modelName)) {
+                const modelInfo = await ModelDetails(modelName);
+                const currentSystem = modelName.startsWith('general-correction') ? correctionSystem : alternationSystem;
+
+                function getContextSizeFromParameters(params: string) {
+                    const match = /num_ctx\s+(?<size>\d+)/.exec(params);
+                    if (match) {
+                        return parseInt(match.groups?.size ?? '0');
+                    }
+                    return undefined;
+                }
+
+                if (modelInfo.details.parent_model == model && modelInfo.system == currentSystem && getContextSizeFromParameters(modelInfo.parameters) == context_window) {
+                    console.log(`Model ${modelName} is already up to date`);
+                    return;// already up to date
+                }
+                console.log(`Delete model ${modelName}`);
+                delete (modelInfo as unknown as { tensors: unknown }).tensors;
+                console.log(`Model info ${JSON.stringify(modelInfo, undefined, 2)}`);
                 await ollama.delete({ model: modelName });
             }
             await ollama.create({ model: modelName, from: model, system, parameters: { num_ctx: context_window } });
@@ -396,10 +414,21 @@ export async function getDictionary() {
 // const modelNameCorrection = `general-correction-${model}`;
 // const modelNameAlternation = `general-alternation-${model}`;
 
+async function ModelInfo(model: `general-correction-${string}` | `general-alternation-${string}`) {
+    const ollama = new Ollama({ host: `${protocol}://${host}:${port}`, fetch: noTimeoutFetch });
+    const data = await ollama.ps();
+    const requestedModel = data.models.filter(x => x.name.startsWith(model))[0];
+    return requestedModel;
+}
+async function ModelDetails(model: `general-correction-${string}` | `general-alternation-${string}`) {
+    const ollama = new Ollama({ host: `${protocol}://${host}:${port}`, fetch: noTimeoutFetch });
+    const data = await ollama.show({ model });
+    return data;
+}
 
-async function RunModel(model: `general-correction-${string}`, input: CorrectionInput): Promise<CorrectionResult>;
-async function RunModel(model: `general-alternation-${string}`, input: AlternationInput): Promise<AlternationResult>;
-async function RunModel(model: `general-correction-${string}` | `general-alternation-${string}`, input: CorrectionInput | AlternationInput): Promise<CorrectionResult | AlternationResult> {
+async function RunModel(model: `general-correction-${string}`, input: CorrectionInput): Promise<CorrectionResult & { prompt_eval_count?: number }>;
+async function RunModel(model: `general-alternation-${string}`, input: AlternationInput): Promise<AlternationResult & { prompt_eval_count?: number }>;
+async function RunModel(model: `general-correction-${string}` | `general-alternation-${string}`, input: CorrectionInput | AlternationInput): Promise<(CorrectionResult | AlternationResult) & { prompt_eval_count?: number }> {
     const ollama = new Ollama({ host: `${protocol}://${host}:${port}`, fetch: noTimeoutFetch });
     for (let trys = 0; trys < 10; trys++) {
 
@@ -411,8 +440,10 @@ async function RunModel(model: `general-correction-${string}` | `general-alterna
             stream: true
         });
         const parts = [] as string[];
+        let prompt_eval_count: number | undefined = undefined;
         for await (const part of result) {
             parts.push(part.message.content);
+            prompt_eval_count = part.prompt_eval_count
             process.stdout.write(part.message.content);
         }
         console.log('\n');
@@ -427,7 +458,7 @@ async function RunModel(model: `general-correction-${string}` | `general-alterna
 
         const parsed = parser.safeParse(JSON.parse(correctionJsonTextFixed));
         if (parsed.success) { // this should not fail, since ollama already validated against this schema
-            return parsed.data;
+            return { prompt_eval_count, ...parsed.data };
         }
         else {
             const errorPath = 'faild.json';
@@ -718,7 +749,51 @@ async function correct(path: string) {
     await createModels();
     for (let modelIndex = 0; modelIndex < usedModels.length; modelIndex++) {
         const model = usedModels[modelIndex];
+
+
+        // check if we need to do something in this model
+        if (metadata.paragraphInfo.every(v => {
+            return v.judgment[model]?.text.correction != undefined && Object.keys(v.judgment[model].text.alternative).filter(x => Object.keys(desiredStyles).includes(x)).length == Object.keys(desiredStyles).length;
+        })) {
+            // already corrected
+            console.log(`Already corrected ${path} with model ${model}`);
+            continue;
+        }
+
+        // we force the model to be loaded with a short request
+        console.log(`Load model ${model}`);
+        const startLoading = now();
+        await RunModel(`general-correction-${model}`, {
+            context: {
+                storyContext: 'Testdata',
+                previousParagraphs: [],
+                nextParagraphs: [],
+            },
+            paragraphToCorrect: 'Testdata',
+        }
+        );
+        const endLoading = now();
+        const loadingTime = endLoading.getTime() - startLoading.getTime();
+        console.log(`Model ${model} loaded in ${loadingTime}ms`);
+        const modelInfo = await ModelInfo(`general-correction-${model}`);
+        console.log(`Model ${model} info: ${JSON.stringify(modelInfo, undefined, 2)}`);
+        if (modelInfo.size > modelInfo.size_vram) {
+            console.warn(`Model ${model} dose not fit in VRAM. ${bytesTohuman(modelInfo.size - modelInfo.size_vram)} of ${bytesTohuman(modelInfo.size)} are offloaded.`);
+            function bytesTohuman(params: number) {
+                const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+                let i = 0;
+                while (params > 1024 && i < units.length - 1) {
+                    params /= 1024;
+                    i++;
+                }
+                return `${params.toFixed(2)} ${units[i]}`;
+            }
+        }
+
+
         for (let paragraphIndex = 0; paragraphIndex < metadata.paragraphInfo.length; paragraphIndex++) {
+
+
 
 
             // we get the next and previous paragraphs
@@ -781,8 +856,14 @@ async function correct(path: string) {
                         badPoints: correctionResult.badPoints,
                     };
                 }
+
+                currentParagraphInfo.judgment[model].prompt_tokens = correctionResult.prompt_eval_count;
+
+
                 const endBlock = now();
                 const currentTime = endBlock.getTime() - startBlock.getTime();
+                currentParagraphInfo.judgment[model].duration_ms = currentTime;
+                console.log(`Correction for ${model} took ${currentTime}ms`);
                 metadata.time_in_ms += currentTime;
 
                 metadata.messages = messages;
@@ -821,10 +902,19 @@ async function correct(path: string) {
                     throw new Error(`Correction for model ${model} was not called before alternation`);
                 }
 
-                currentParagraphInfo.judgment[model].text.alternative[desiredTitle] = formatMarkdown(alternationResult.alternative);
+                const formatedResult = formatMarkdown(alternationResult.alternative);
 
                 const endBlock = now();
                 const currentTime = endBlock.getTime() - startBlock.getTime();
+                currentParagraphInfo.judgment[model].text.alternative[desiredTitle] = {
+                    text: formatedResult,
+                    duration_ms: currentTime,
+                    prompt_tokens: alternationResult.prompt_eval_count,
+                };
+
+                console.log(`Alternation for ${desiredTitle} took ${currentTime}ms`);
+
+
                 metadata.time_in_ms += currentTime;
 
                 metadata.messages = messages;

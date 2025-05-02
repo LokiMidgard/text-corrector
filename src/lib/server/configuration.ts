@@ -25,10 +25,16 @@ export const paragrapInfo = z.object({
     judgment: z.record(z.string(), z.object({
         goodPoints: z.array(z.string()),
         badPoints: z.array(z.string()),
+        duration_ms: z.number().optional(),
+        prompt_tokens: z.number().optional(),
         score: z.number(),
         text: z.object({
             correction: z.string(),
-            alternative: z.record(z.string(), z.string()),
+            alternative: z.record(z.string(), z.string().or(z.object({
+                text: z.string(),
+                duration_ms: z.number(),
+                prompt_tokens: z.number().optional(),
+            }))),
         }),
         involvedCharacters: z.array(z.string()),
         protocol: z.array(z.object({
