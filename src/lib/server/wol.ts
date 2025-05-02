@@ -204,8 +204,17 @@ type ModelPropertys = {
 }
 
 // the model to use
-const usedModels: (keyof typeof model_properties)[] = (env.MODEL?.split('|') ?? ['hf.co/Hasso5703/Mistral-Small-24B-Instruct-2501-Q4_0-GGUF']) as (keyof typeof model_properties)[];
-// manly for debbugging purpus
+const usedModels: ({
+    model: string,
+    context_window: number | undefined,
+})[] = (env.MODEL?.split('|') ?? ['hf.co/Hasso5703/Mistral-Small-24B-Instruct-2501-Q4_0-GGUF>27192']).map(modelString => {
+    const [model, contextText] = modelString.split('>');
+    const context_window = contextText?.length > 0 ? parseInt(contextText) : undefined;
+    return {
+        model: model.trim(),
+        context_window: context_window,
+    }
+});// manly for debbugging purpus
 
 
 
@@ -231,9 +240,8 @@ async function createModels() {
 
     await wake({ mac, ip, isHealthy });
     const ollama = new Ollama({ host: `${protocol}://${host}:${port}`, fetch: noTimeoutFetch });
-    for (const model of usedModels) {
+    for (const { model, context_window } of usedModels) {
         const models = await ollama.list();
-        const context_window = model_properties[model]?.context_window;
         const modelNameCorrection = `general-correction-${model}` as const;
         const modelNameAlternation = `general-alternation-${model}` as const;
         const correctionSystem = correctionSmystem("Jugendbücher");
@@ -287,7 +295,7 @@ export async function checkRepo(): Promise<never> {
 
             await git.updateRepo(githubApiToken, repo, cache);
 
-            setModelConiguration({ modelNames: usedModels, styles: Object.keys(desiredStyles) });
+            setModelConiguration({ modelNames: usedModels.map(x => x.model), styles: Object.keys(desiredStyles) });
 
 
             console.log('Repo updated');
@@ -726,7 +734,7 @@ async function correct(path: string) {
     const metadata: git.NewCorrectionMetadata = await getOrCreateMetadta(path, cache);
 
     const isEveryModelAndStyleProcessed =
-        (getFileProgress(metadata, { modelNames: usedModels, styles: Object.keys(desiredStyles) }) ?? 0) >= (getFileTotalProgress(metadata, { modelNames: usedModels, styles: Object.keys(desiredStyles) }));
+        (getFileProgress(metadata, { modelNames: usedModels.map(x=>x.model), styles: Object.keys(desiredStyles) }) ?? 0) >= (getFileTotalProgress(metadata, { modelNames: usedModels.map(x=>x.model), styles: Object.keys(desiredStyles) }));
 
     if (isEveryModelAndStyleProcessed) {
         // already corrected
@@ -748,7 +756,7 @@ async function correct(path: string) {
 
     await createModels();
     for (let modelIndex = 0; modelIndex < usedModels.length; modelIndex++) {
-        const model = usedModels[modelIndex];
+        const {model} = usedModels[modelIndex];
 
 
         // check if we need to do something in this model
