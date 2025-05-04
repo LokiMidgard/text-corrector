@@ -1,12 +1,25 @@
 #!/bin/bash
 
 if [ -z "$1" ]; then
-    echo "Error: Docker host not provided."
-    echo "Usage: $0 <docker_host>"
-    exit 1
+    if [ -f .env ]; then
+        # Load .env file
+        source .env
+        if [ -z "$DOCKER_HOST" ]; then
+            echo "Error: Docker host not provided and not defined in .env file."
+            echo "Usage: $0 <docker_host>"
+            exit 1
+        fi
+    else
+        echo "Error: Docker host not provided and .env file not found."
+        echo "Usage: $0 <docker_host>"
+        exit 1
+    fi
+else
+    DOCKER_HOST=$1
 fi
 
-DOCKER_HOST=$1
+
+
 
 # check if docker containerd-snapshotter is enabled in deamon.json
 if [ ! -f /etc/docker/daemon.json ]; then

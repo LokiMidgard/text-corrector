@@ -149,3 +149,14 @@ export function msToHumanReadable(durattion_in_ms: number): string {
     console.debug("formattedDuration", durattion_in_ms, formattedDuration);
     return formattedDuration;
 }
+
+export function bytesTohuman(params: number) {
+    const bytes = params;
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    let i = 0;
+    while (params > 1024 && i < units.length - 1) {
+        params /= 1024;
+        i++;
+    }
+    return `${params.toFixed(2)} ${units[i]} (${bytes} bytes)`;
+}

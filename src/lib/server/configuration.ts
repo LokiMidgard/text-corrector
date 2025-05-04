@@ -144,6 +144,7 @@ const fetchAgent = (protocol: string) => protocol == 'https' ? new https.Agent({
 
 const dispatcher = new Agent({
     headersTimeout: Number.MAX_SAFE_INTEGER,
+    bodyTimeout: Number.MAX_SAFE_INTEGER,
     connect: {
         ca
     }
@@ -204,6 +205,8 @@ export async function wake({ ip, mac, isHealthy }: { ip: string, mac: string, is
 
         state = await ping.promise.probe(await ip);
     }
+
+    console.log(`Woke up ${mac} at ${ip} wait for it to be healthy`);
 
     // wait untill server is healthy
     while (!(await isHealthy())) {
