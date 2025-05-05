@@ -734,8 +734,20 @@ async function RunModel(model: `general-correction-${string}` | `general-alterna
 function checkForLongRepeatingPart(txt: string, minLength: number, minRepeats: number) {
     // we pereodicly check, so we can just check if the last minLength characters are somewhere else in the text
     const lastPart = txt.substring(txt.length - minLength);
-    const matches = txt.split(lastPart).length - 1 >= minRepeats;
-    return matches;
+    let found = 0;
+    let index = txt.length - minLength;
+    while (index > 0) {
+        const foundIndex = txt.lastIndexOf(lastPart, index);
+        if (foundIndex == -1) {
+            return false;
+        }
+        found++;
+        if (found >= minRepeats) {
+            return true;
+        }
+        index = foundIndex;
+    }
+    return false;
 }
 
 async function correctClassic(path: string) {
