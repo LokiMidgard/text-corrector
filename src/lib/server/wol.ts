@@ -698,6 +698,8 @@ async function RunModel(model: `general-correction-${string}` | `general-alterna
             const currentText = parts.join('');
             if (checkForLongRepeatingPart(currentText, 150, 3)) {
                 console.error(`Model ${model} is repeating itself. Try again`);
+                console.log(currentText);
+
                 throw new Error(`Model ${model} is repeating itself. Try again`);
             }
         }
