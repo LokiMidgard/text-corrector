@@ -11,7 +11,7 @@ import * as git from '$lib/server/git'
 import { fireUpdate, setModelConiguration } from '$lib/trpc/router';
 import { zodToJsonSchema } from "zod-to-json-schema";
 
-import { bytesTohuman, formatMarkdown, getFileProgress, getFileTotalProgress, reduceDuration, transformFromAst, transformToAst } from '$lib';
+import { bytesTohuman, formatMarkdown, getFileProgress, getFileTotalProgress, msToHumanReadable, reduceDuration, transformFromAst, transformToAst } from '$lib';
 import path from 'path';
 import { env, fetchOptions, pathFilter, wake, type NewParagrapInfo } from './configuration';
 import { getLanguageToolResult, type LanguageToolResult } from './languagetool';
@@ -691,18 +691,24 @@ async function RunModel(model: `general-correction-${string}` | `general-alterna
         });
         const parts = [] as string[];
         let prompt_eval_count: number | undefined = undefined;
+        let time_checkin = 0;
         for await (const part of result) {
             parts.push(part.message.content);
             prompt_eval_count = part.prompt_eval_count
             process.stdout.write(part.message.content);
             const currentText = parts.join('');
+            const chneck_start = performance.now();
             if (checkForLongRepeatingPart(currentText, 150, 3)) {
                 console.error(`Model ${model} is repeating itself. Try again`);
                 console.log(currentText);
 
                 throw new Error(`Model ${model} is repeating itself. Try again`);
             }
+            const checked_end = performance.now();
+            time_checkin += checked_end - chneck_start;
         }
+        console.log('\n');
+        console.log(`repeating check took ${msToHumanReadable(time_checkin)}`);
         console.log('\n');
         const correctionJsonText = parts.join('');
 
