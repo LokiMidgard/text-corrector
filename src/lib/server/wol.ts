@@ -16,6 +16,8 @@ import path from 'path';
 import { env, fetchOptions, pathFilter, wake, type NewParagrapInfo } from './configuration';
 import { getLanguageToolResult, type LanguageToolResult } from './languagetool';
 import { Semaphore } from 'await-semaphore';
+import * as regression from 'regression';
+
 
 const cache_path = '/var/cache/lector/ollama.json';
 
@@ -346,7 +348,7 @@ async function createModels() {
                         continue;
                     }
                     context_size_per_token_history.push({ tokens: currentContextSize, model_size: total_model_size });
-                    const modelSizeEstimator = createLinearAproximationFunction(context_size_per_token_history.map(({ model_size, tokens }) => ({ x: tokens, y: model_size })));
+                    const modelSizeEstimator = createAproximationFunction(context_size_per_token_history.map(({ model_size, tokens }) => ({ x: tokens, y: model_size })));
 
 
                     if (max_vram == undefined) {
@@ -693,6 +695,11 @@ async function RunModel(model: `general-correction-${string}` | `general-alterna
             parts.push(part.message.content);
             prompt_eval_count = part.prompt_eval_count
             process.stdout.write(part.message.content);
+            const currentText = parts.join('');
+            if (checkForLongRepeatingPart(currentText, 150, 3)) {
+                console.error(`Model ${model} is repeating itself. Try again`);
+                throw new Error(`Model ${model} is repeating itself. Try again`);
+            }
         }
         console.log('\n');
         const correctionJsonText = parts.join('');
@@ -720,6 +727,13 @@ async function RunModel(model: `general-correction-${string}` | `general-alterna
         }
     }
     throw new Error(`Unable to get a valid response from model ${model} wit input:\n${JSON.stringify(input, undefined, 2)}`);
+}
+
+function checkForLongRepeatingPart(txt: string, minLength: number, minRepeats: number) {
+    // we pereodicly check, so we can just check if the last minLength characters are somewhere else in the text
+    const lastPart = txt.substring(txt.length - minLength);
+    const matches = txt.split(lastPart).length - 1 >= minRepeats;
+    return matches;
 }
 
 async function correctClassic(path: string) {
@@ -1189,28 +1203,40 @@ async function correct(path: string) {
 
 
 
-
-
-
-function createLinearAproximationFunction(params: { x: number, y: number }[]): { f: (x: number) => number, inverse: (y: number) => number } {
+function createAproximationFunction(params: { x: number, y: number }[]): { f: (x: number) => number, inverse: (y: number) => number } {
     const n = params.length;
     if (n < 2) {
-        throw new Error(`Not enough points to create a linear approximation function ${JSON.stringify(params)}`);
-    }
-    const sumX = params.reduce((acc, { x }) => acc + x, 0);
-    const sumY = params.reduce((acc, { y }) => acc + y, 0);
-    const sumXY = params.reduce((acc, { x, y }) => acc + x * y, 0);
-    const sumX2 = params.reduce((acc, { x }) => acc + x * x, 0);
-
-    const slope = (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX);
-    const intercept = (sumY - slope * sumX) / n;
-    if (slope == 0) {
-        throw new Error(`Slope is 0, this should not happen ${JSON.stringify(params)} (${slope}, ${intercept} ${n}, ${sumX}, ${sumY}, ${sumXY}, ${sumX2})`);
+        throw new Error(`Not enough points to create a polynomial approximation function ${JSON.stringify(params)}`);
     }
 
-    const f = (x: number) => slope * x + intercept;
-    const inverse = (y: number) => (y - intercept) / slope;
-    return { f, inverse };
+
+    const data = params.map(({ x, y }) => [x, y] as [number, number]);
+    const { equation } = regression.polynomial(data, { order: n == 2 ? 1 : 2 });
+
+    if (n == 2) {
+        const [a, b] = equation;
+        const f = (x: number) => a * x + b;
+        const inverse = (y: number) => (y - b) / a;
+        return { f, inverse };
+    } else {
+        const [a, b, c] = equation;
+        const f = (x: number) => a * x * x + b * x + c;
+        const inverse = (y: number) => {
+            // we need to solve the quadratic equation ax^2 + bx + c = y
+            // this is a bit tricky since we need to use the quadratic formula
+            // x = (-b +/- sqrt(b^2 - 4ac)) / 2a
+            const discriminant = b * b - 4 * a * (c - y);
+            if (discriminant < 0) {
+                throw new Error(`No real solution for ${JSON.stringify(params)} (${a}, ${b}, ${c} for ${y})`);
+            }
+            const sqrtDiscriminant = Math.sqrt(discriminant);
+            const x1 = (-b + sqrtDiscriminant) / (2 * a);
+            // we want the positive solution
+            // const x2 = (-b - sqrtDiscriminant) / (2 * a);
+            return x1;
+        }
+        return { f, inverse };
+    }
 }
 
 
