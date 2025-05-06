@@ -278,9 +278,11 @@ async function createModels() {
             }
             const modelInfo = await ModelInfo(modelName);
             const vramContextSize = modelInfo.size_vram;
-            if (vramContextSize != cache.max_vram) {
+            // check if the diference is bigger than 10%
+            if (cache.max_vram && Math.abs(vramContextSize - cache.max_vram) / cache.max_vram > 0.1) {
                 // clear cache
                 console.log(`Invalidate cache, vram changed (${bytesTohuman(cache.max_vram)} -> ${bytesTohuman(vramContextSize)})`)
+                console.log(`Difference ${(Math.abs(vramContextSize - cache.max_vram) / cache.max_vram * 100).toFixed(2)}%`);
                 cache = {
                     max_vram: undefined,
                     models: {}
@@ -408,6 +410,7 @@ async function createModels() {
                     const modelSizeEstimator = createAproximationFunction(context_size_per_token_history.map(({ model_size, tokens }) => ({ x: tokens, y: model_size })));
 
 
+
                     if (max_vram == undefined) {
                         if (total_model_size > vramContextSize) {
                             max_vram = vramContextSize;
@@ -456,6 +459,10 @@ async function createModels() {
                             console.log(`Max context size ${maxContextSize} tokens`);
                         }
                         continue;
+                    } else {
+                        max_vram = Math.max(max_vram, vramContextSize);
+                        cache.max_vram = max_vram;
+                        fs.writeFileSync(cache_path, JSON.stringify(cache, undefined, 2));
                     }
                     if (total_model_size > max_vram) {
                         // we missed probably through rounding
@@ -805,7 +812,7 @@ function checkForLongRepeatingPart(txt: string, minLength: number, minRepeats: n
     // we pereodicly check, so we can just check if the last minLength characters are somewhere else in the text
     const lastPart = txt.substring(txt.length - minLength);
     let found = 0;
-    let index = txt.length - minLength -1;
+    let index = txt.length - minLength - 1;
     while (index > 0) {
         const foundIndex = txt.lastIndexOf(lastPart, index);
         if (foundIndex == -1) {
