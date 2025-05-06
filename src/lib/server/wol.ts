@@ -243,7 +243,7 @@ async function createModels() {
             return sample.model_size >= cache.max_vram!;
         }).sort((a, b) => a.sample.model_size - b.sample.model_size)[0];
         if (testSample) {
-            console.log(`Check if VRAM size is still the same (was ${cache.max_vram})`);
+            console.log(`Check if VRAM size is still the same (was ${bytesTohuman(cache.max_vram)})`);
             const modelName = testSample.model as `general-correction-${string}` | `general-alternation-${string}`;
             console.log(`Using ${testSample.model} with ${testSample.sample.tokens} tokens (${bytesTohuman(testSample.sample.model_size)})`)
             // create the model with the context and check if vram is still correct
@@ -282,11 +282,13 @@ async function createModels() {
             if (cache.max_vram && Math.abs(vramContextSize - cache.max_vram) / cache.max_vram > 0.1) {
                 // clear cache
                 console.log(`Invalidate cache, vram changed (${bytesTohuman(cache.max_vram)} -> ${bytesTohuman(vramContextSize)})`)
-                console.log(`Difference ${(Math.abs(vramContextSize - cache.max_vram) / cache.max_vram * 100).toFixed(2)}%`);
                 cache = {
                     max_vram: undefined,
                     models: {}
                 }
+            }
+            if (cache.max_vram) {
+                console.log(`Difference ${(Math.abs(vramContextSize - cache.max_vram) / cache.max_vram * 100).toFixed(2)}%`);
             }
         }
         vram_size_checked = true;
