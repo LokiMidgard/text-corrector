@@ -199,7 +199,7 @@ const usedModels: ({
 
 
 
-
+let vram_size_checked = false;
 
 
 async function createModels() {
@@ -217,30 +217,88 @@ async function createModels() {
         }
     }
 
+    let cache: {
+        max_vram: number | undefined,
+        models: Record<`general-correction-${string}` | `general-alternation-${string}`, { context_size: number, samples: { tokens: number, model_size: number }[] }>,
+    };
+
+    if (fs.existsSync(cache_path)) {
+        cache = JSON.parse(fs.readFileSync(cache_path, 'utf8'));
+    } else {
+        cache = {
+            max_vram: undefined,
+            models: {},
+        };
+    }
+
+    const correctionSystem = correctionSmystem("Jugendbücher");
+    const alternationSystem = alternationSmystem("Jugendbücher");
 
     await wake({ mac, ip, isHealthy });
     const ollama = new Ollama({ host: `${protocol}://${host}:${port}`, fetch: noTimeoutFetch });
+
+
+    // check if vram still is correct
+    if (cache.max_vram && !vram_size_checked) {
+        const testSample = Object.entries(cache.models).flatMap(([model, { samples }]) => samples.map(x => ({ model: model, sample: x }))).filter(({ sample }) => {
+            return sample.model_size >= cache.max_vram!;
+        }).sort((a, b) => a.sample.model_size - b.sample.model_size)[0];
+        if (testSample) {
+            console.log(`Check if VRAM size is still the same (was ${cache.max_vram})`);
+            const modelName = testSample.model as `general-correction-${string}` | `general-alternation-${string}`;
+            console.log(`Using ${testSample.model} with ${testSample.sample.tokens} tokens (${bytesTohuman(testSample.sample.model_size)})`)
+            // create the model with the context and check if vram is still correct
+            const system = isAlternationModel(modelName)
+                ? alternationSystem
+                : correctionSystem;
+            const baseModel = getBasemodel(modelName)
+
+            if (await ollama.list().then(models => models.models.some(m => m.name == modelName))) {
+                await ollama.delete({ model: modelName });
+            }
+            await ollama.create({ model: modelName, from: baseModel, system, parameters: { num_ctx: testSample.sample.tokens } });
+            if (isCorrectionModel(modelName)) {
+                await RunModel(modelName, {
+                    context: {
+                        nextParagraphs: [],
+                        previousParagraphs: [],
+                        storyContext: 'Testdata',
+                    },
+                    paragraphToCorrect: 'Testdata',
+                });
+            } else {
+                await RunModel(modelName, {
+                    context: {
+                        nextParagraphs: [],
+                        previousParagraphs: [],
+                        storyContext: 'Testdata',
+                        intendedStyles: 'short',
+                    },
+                    paragraphToCorrect: 'Testdata',
+                });
+            }
+            const modelInfo = await ModelInfo(modelName);
+            const vramContextSize = modelInfo.size_vram;
+            if (vramContextSize != cache.max_vram) {
+                // clear cache
+                console.log(`Invalidate cache, vram changed (${bytesTohuman(cache.max_vram)} -> ${bytesTohuman(vramContextSize)})`)
+                cache = {
+                    max_vram: undefined,
+                    models: {}
+                }
+            }
+        }
+        vram_size_checked = true;
+    }
+
+
     for (const { model, context_window } of usedModels) {
         const models = await ollama.list();
         const modelNameCorrection = `general-correction-${model}` as const;
         const modelNameAlternation = `general-alternation-${model}` as const;
-        const correctionSystem = correctionSmystem("Jugendbücher");
-        const alternationSystem = alternationSmystem("Jugendbücher");
 
         const updateModel = async (modelName: `general-correction-${string}` | `general-alternation-${string}`, system: string) => {
-            let cache: {
-                max_vram: number | undefined,
-                models: Record<string, { context_size: number, samples: { tokens: number, model_size: number }[] }>,
-            };
 
-            if (fs.existsSync(cache_path)) {
-                cache = JSON.parse(fs.readFileSync(cache_path, 'utf8'));
-            } else {
-                cache = {
-                    max_vram: undefined,
-                    models: {},
-                };
-            }
 
             let max_supported_context_of_model: number | undefined = undefined;
             function extractMaxContextSize(modelInfo: ShowResponse) {
@@ -360,7 +418,7 @@ async function createModels() {
                                 max_vram = cache.max_vram;
                                 console.log(`Max vram ${bytesTohuman(max_vram)} from cache`);
                             } else {
-                                // increase the context size to find the maximum vram by 4 GB
+                                // increase the context size by 4 GB to find the maximum vram
                                 const increase = 4 * 1024 * 1024 * 1024;
                                 const newContextSize = Math.floor(modelSizeEstimator.inverse(total_model_size + increase));
                                 console.log(`Increase context size ${currentContextSize} -> ${newContextSize}`);
@@ -676,6 +734,15 @@ function isAlternationModel(params: string): params is `general-alternation-${st
     return params.startsWith('general-alternation');
 }
 
+function getBasemodel<T extends string>(params: `general-correction-${T}` | `general-alternation-${T}`): T {
+    if (isCorrectionModel(params)) {
+        return params.substring('general-correction-'.length) as T;
+    } else if (isAlternationModel(params)) {
+        return params.substring('general-alternation-'.length) as T;
+    }
+    throw new Error(`Not a model`)
+}
+
 async function RunModel(model: `general-correction-${string}`, input: CorrectionInput): Promise<CorrectionResult & { prompt_eval_count?: number }>;
 async function RunModel(model: `general-alternation-${string}`, input: AlternationInput): Promise<AlternationResult & { prompt_eval_count?: number }>;
 async function RunModel(model: `general-correction-${string}` | `general-alternation-${string}`, input: CorrectionInput | AlternationInput): Promise<(CorrectionResult | AlternationResult) & { prompt_eval_count?: number }> {
@@ -691,24 +758,18 @@ async function RunModel(model: `general-correction-${string}` | `general-alterna
         });
         const parts = [] as string[];
         let prompt_eval_count: number | undefined = undefined;
-        let time_checkin = 0;
         for await (const part of result) {
             parts.push(part.message.content);
             prompt_eval_count = part.prompt_eval_count
             process.stdout.write(part.message.content);
             const currentText = parts.join('');
-            const chneck_start = performance.now();
             if (checkForLongRepeatingPart(currentText, 150, 3)) {
                 console.error(`Model ${model} is repeating itself. Try again`);
                 console.log(currentText);
 
                 throw new Error(`Model ${model} is repeating itself. Try again`);
             }
-            const checked_end = performance.now();
-            time_checkin += checked_end - chneck_start;
         }
-        console.log('\n');
-        console.log(`repeating check took ${msToHumanReadable(time_checkin)}`);
         console.log('\n');
         const correctionJsonText = parts.join('');
 
