@@ -11,12 +11,11 @@ import * as git from '$lib/server/git'
 import { fireUpdate, setModelConiguration } from '$lib/trpc/router';
 import { zodToJsonSchema } from "zod-to-json-schema";
 
-import { bytesTohuman, formatMarkdown, getFileProgress, getFileTotalProgress, msToHumanReadable, reduceDuration, transformFromAst, transformToAst } from '$lib';
+import { bytesTohuman, createAproximationFunction, formatMarkdown, getFileProgress, getFileTotalProgress, msToHumanReadable, reduceDuration, transformFromAst, transformToAst } from '$lib';
 import path from 'path';
 import { env, fetchOptions, pathFilter, wake, type NewParagrapInfo } from './configuration';
 import { getLanguageToolResult, type LanguageToolResult } from './languagetool';
 import { Semaphore } from 'await-semaphore';
-import * as regression from 'regression';
 
 
 const cache_path = '/var/cache/lector/ollama.json';
@@ -699,8 +698,12 @@ async function RunModel(model: `general-correction-${string}` | `general-alterna
             const currentText = parts.join('');
             const chneck_start = performance.now();
             if (checkForLongRepeatingPart(currentText, 150, 3)) {
+                console.log('\n');
+
                 console.error(`Model ${model} is repeating itself. Try again`);
+                console.log('\n');
                 console.log(currentText);
+                console.log('\n');
 
                 throw new Error(`Model ${model} is repeating itself. Try again`);
             }
@@ -741,7 +744,7 @@ function checkForLongRepeatingPart(txt: string, minLength: number, minRepeats: n
     // we pereodicly check, so we can just check if the last minLength characters are somewhere else in the text
     const lastPart = txt.substring(txt.length - minLength);
     let found = 0;
-    let index = txt.length - minLength;
+    let index = txt.length - minLength -1;
     while (index > 0) {
         const foundIndex = txt.lastIndexOf(lastPart, index);
         if (foundIndex == -1) {
@@ -751,7 +754,7 @@ function checkForLongRepeatingPart(txt: string, minLength: number, minRepeats: n
         if (found >= minRepeats) {
             return true;
         }
-        index = foundIndex;
+        index = foundIndex - minLength;
     }
     return false;
 }
@@ -1222,42 +1225,6 @@ async function correct(path: string) {
 
 
 
-
-function createAproximationFunction(params: { x: number, y: number }[]): { f: (x: number) => number, inverse: (y: number) => number } {
-    const n = params.length;
-    if (n < 2) {
-        throw new Error(`Not enough points to create a polynomial approximation function ${JSON.stringify(params)}`);
-    }
-
-
-    const data = params.map(({ x, y }) => [x, y] as [number, number]);
-    const { equation } = regression.polynomial(data, { order: n == 2 ? 1 : 2 });
-
-    if (n == 2) {
-        const [a, b] = equation;
-        const f = (x: number) => a * x + b;
-        const inverse = (y: number) => (y - b) / a;
-        return { f, inverse };
-    } else {
-        const [a, b, c] = equation;
-        const f = (x: number) => a * x * x + b * x + c;
-        const inverse = (y: number) => {
-            // we need to solve the quadratic equation ax^2 + bx + c = y
-            // this is a bit tricky since we need to use the quadratic formula
-            // x = (-b +/- sqrt(b^2 - 4ac)) / 2a
-            const discriminant = b * b - 4 * a * (c - y);
-            if (discriminant < 0) {
-                throw new Error(`No real solution for ${JSON.stringify(params)} (${a}, ${b}, ${c} for ${y})`);
-            }
-            const sqrtDiscriminant = Math.sqrt(discriminant);
-            const x1 = (-b + sqrtDiscriminant) / (2 * a);
-            // we want the positive solution
-            // const x2 = (-b - sqrtDiscriminant) / (2 * a);
-            return x1;
-        }
-        return { f, inverse };
-    }
-}
 
 
 

@@ -160,3 +160,98 @@ export function bytesTohuman(params: number) {
     }
     return `${params.toFixed(2)} ${units[i]} (${bytes} bytes)`;
 }
+
+
+
+
+
+
+
+
+
+type Point = { x: number, y: number };
+
+export function createAproximationFunction(points: Point[]) {
+
+    if (points.length < 2) {
+        throw new Error("At least two points are required to calculate a function.");
+    }
+    if (points.length == 2) {
+        const [p1, p2] = points;
+        const a = (p2.y - p1.y) / (p2.x - p1.x);
+        const b = p1.y - a * p1.x;
+        return {
+            parameter: { a, b },
+            f: (x: number) => a * x + b,
+            inverse: (y: number) => (y - b) / a
+        };
+    }
+
+    let sumX = 0, sumX2 = 0, sumX3 = 0, sumX4 = 0;
+    let sumY = 0, sumXY = 0, sumX2Y = 0;
+    const n = points.length;
+
+    for (const { x, y } of points) {
+        const x2 = x * x;
+        const x3 = x2 * x;
+        const x4 = x3 * x;
+
+        sumX += x;
+        sumX2 += x2;
+        sumX3 += x3;
+        sumX4 += x4;
+        sumY += y;
+        sumXY += x * y;
+        sumX2Y += x2 * y;
+    }
+
+    // Matrix:
+    // | sumX4 sumX3 sumX2 |   | a |   =   | sumX2Y |
+    // | sumX3 sumX2 sumX  | * | b |   =   | sumXY  |
+    // | sumX2 sumX  n     |   | c |   =   | sumY   |
+
+    const A = [
+        [sumX4, sumX3, sumX2],
+        [sumX3, sumX2, sumX],
+        [sumX2, sumX, n]
+    ];
+
+    const B = [sumX2Y, sumXY, sumY];
+
+    const [a, b, c] = solveLinearSystem(A, B);
+    return {
+        parameter: { a, b, c },
+        f: (x: number) => a * x * x + b * x + c,
+        inverse: (y: number) => {
+            const discriminant = b * b - 4 * a * (c - y);
+            if (discriminant < 0) throw new Error('No discriminate'); // No real roots
+            const sqrtDiscriminant = Math.sqrt(discriminant);
+            const x1 = (-b + sqrtDiscriminant) / (2 * a);
+            // we only need the positive root
+            // const x2 = (-b - sqrtDiscriminant) / (2 * a);
+            return x1; // Return only non-negative roots
+        }
+    };
+}
+
+// Solve a 3x3 linear system Ax = B
+function solveLinearSystem(A: number[][], B: number[]) {
+    const [a, b, c] = A;
+    const det = determinant3x3(a, b, c);
+
+    if (det === 0) throw new Error("Matrix is singular and cannot be solved.");
+
+    const Dx = determinant3x3(B, b, c);
+    const Dy = determinant3x3(a, B, c);
+    const Dz = determinant3x3(a, b, B);
+
+    return [Dx / det, Dy / det, Dz / det] as const;
+}
+
+function determinant3x3(a: number[], b: number[], c: number[]): number {
+    return (
+        a[0] * (b[1] * c[2] - b[2] * c[1]) -
+        a[1] * (b[0] * c[2] - b[2] * c[0]) +
+        a[2] * (b[0] * c[1] - b[1] * c[0])
+    );
+}
