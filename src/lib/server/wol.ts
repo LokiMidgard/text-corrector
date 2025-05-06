@@ -240,7 +240,7 @@ async function createModels() {
     // check if vram still is correct
     if (cache.max_vram && !vram_size_checked) {
         const testSample = Object.entries(cache.models).flatMap(([model, { samples }]) => samples.map(x => ({ model: model, sample: x }))).filter(({ sample }) => {
-            return sample.model_size >= cache.max_vram!;
+            return sample.model_size >= cache.max_vram! * 1.1;
         }).sort((a, b) => a.sample.model_size - b.sample.model_size)[0];
         if (testSample) {
             console.log(`Check if VRAM size is still the same (was ${bytesTohuman(cache.max_vram)})`);
@@ -282,6 +282,7 @@ async function createModels() {
             if (cache.max_vram && Math.abs(vramContextSize - cache.max_vram) / cache.max_vram > 0.1) {
                 // clear cache
                 console.log(`Invalidate cache, vram changed (${bytesTohuman(cache.max_vram)} -> ${bytesTohuman(vramContextSize)})`)
+                console.log(`Difference ${(Math.abs(vramContextSize - cache.max_vram) / cache.max_vram * 100).toFixed(2)}%`);
                 cache = {
                     max_vram: undefined,
                     models: {}
