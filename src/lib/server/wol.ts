@@ -360,6 +360,7 @@ async function createModels() {
                 let baseModelSize: number | undefined = undefined;
                 const context_size_per_token_history: { tokens: number, model_size: number }[] = [];
                 let max_vram: number | undefined = undefined;
+                let modelDoseNotSupportMaxVram = false;
 
                 let first = true;
                 while (true) {
@@ -430,6 +431,8 @@ async function createModels() {
                                 if (max_supported_context_of_model && newContextSize > max_supported_context_of_model) {
                                     console.warn(`Model ${modelName} has a maximum context size of ${max_supported_context_of_model} tokens. Cannot increase to ${newContextSize}`);
                                     currentContextSize = max_supported_context_of_model;
+                                    modelDoseNotSupportMaxVram = true;
+                                    max_vram = vramContextSize;
                                 } else {
                                     currentContextSize = newContextSize;
                                 }
@@ -445,7 +448,9 @@ async function createModels() {
                                 context_size: currentContextSize,
                                 samples: context_size_per_token_history,
                             };
-                            cache.max_vram = max_vram;
+                            if (!modelDoseNotSupportMaxVram) {
+                                cache.max_vram = max_vram;
+                            }
                             fs.writeFileSync(cache_path, JSON.stringify(cache, undefined, 2));
 
                             await ollama.delete({ model: modelName });
@@ -464,8 +469,10 @@ async function createModels() {
                         continue;
                     } else {
                         max_vram = Math.max(max_vram, vramContextSize);
-                        cache.max_vram = max_vram;
-                        fs.writeFileSync(cache_path, JSON.stringify(cache, undefined, 2));
+                        if (!modelDoseNotSupportMaxVram) {
+                            cache.max_vram = max_vram;
+                            fs.writeFileSync(cache_path, JSON.stringify(cache, undefined, 2));
+                        }
                     }
                     if (total_model_size > max_vram) {
                         // we missed probably through rounding
@@ -563,7 +570,9 @@ async function createModels() {
                         context_size: currentContextSize,
                         samples: context_size_per_token_history,
                     };
-                    cache.max_vram = max_vram;
+                    if (!modelDoseNotSupportMaxVram) {
+                        cache.max_vram = max_vram;
+                    }
                     fs.writeFileSync(cache_path, JSON.stringify(cache, undefined, 2));
                     return;
                 }
