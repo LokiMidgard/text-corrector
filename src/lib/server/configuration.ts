@@ -88,7 +88,7 @@ const envParser = z.object({
     REPO: z.string(),
     PATH_FILTER: z.string().optional(),
     MODEL: z.string().optional(),
-    MAX_CONTEXT_WINDOW: z.number().optional(),
+    MAX_CONTEXT_WINDOW: z.string().optional(),
 });
 export type Env = z.infer<typeof envParser>;
 
