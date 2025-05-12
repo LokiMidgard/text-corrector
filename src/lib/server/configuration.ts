@@ -88,7 +88,7 @@ const envParser = z.object({
     REPO: z.string(),
     PATH_FILTER: z.string().optional(),
     MODEL: z.string().optional(),
-    CONTEXT_WINDOW: z.number().optional(),
+    MAX_CONTEXT_WINDOW: z.number().optional(),
 });
 export type Env = z.infer<typeof envParser>;
 
@@ -120,7 +120,7 @@ const keysToPrint: (keyof Env)[] = [
     'REPO',
     'PATH_FILTER',
     'MODEL',
-    'CONTEXT_WINDOW'
+    'MAX_CONTEXT_WINDOW'
 ];
 
 console.log();

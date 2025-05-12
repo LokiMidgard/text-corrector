@@ -347,8 +347,9 @@ async function createModels() {
 
 
                 if (cache.models[modelName] && cache.models[modelName].context_size) {
-                    await ollama.create({ model: modelName, from: model, system, parameters: { num_ctx: cache.models[modelName].context_size } });
-                    console.log(`Model ${modelName} created with context size ${cache.models[modelName].context_size}`);
+                    const finalContextSize = Math.min(cache.models[modelName].context_size, env.MAX_CONTEXT_WINDOW ?? Number.MAX_SAFE_INTEGER);
+                    await ollama.create({ model: modelName, from: model, system, parameters: { num_ctx: finalContextSize } });
+                    console.log(`Model ${modelName} created with context size ${finalContextSize}`);
                     return;
                 }
 
@@ -452,6 +453,12 @@ async function createModels() {
                                 cache.max_vram = max_vram;
                             }
                             fs.writeFileSync(cache_path, JSON.stringify(cache, undefined, 2));
+
+
+                            if (env.MAX_CONTEXT_WINDOW && currentContextSize > env.MAX_CONTEXT_WINDOW) {
+                                currentContextSize = env.MAX_CONTEXT_WINDOW;
+                                console.log(`Model ${modelName} created with context size ${currentContextSize} tokens.`);
+                            }
 
                             await ollama.delete({ model: modelName });
                             await ollama.create({ model: modelName, from: model, system, parameters: { num_ctx: currentContextSize } });
@@ -574,6 +581,12 @@ async function createModels() {
                         cache.max_vram = max_vram;
                     }
                     fs.writeFileSync(cache_path, JSON.stringify(cache, undefined, 2));
+                    if (env.MAX_CONTEXT_WINDOW && currentContextSize > env.MAX_CONTEXT_WINDOW) {
+                        currentContextSize = env.MAX_CONTEXT_WINDOW;
+                        console.log(`Model ${modelName} created with context size ${currentContextSize} tokens.`);
+                        await ollama.delete({ model: modelName });
+                        await ollama.create({ model: modelName, from: model, system, parameters: { num_ctx: currentContextSize } });
+                    }
                     return;
                 }
             }
