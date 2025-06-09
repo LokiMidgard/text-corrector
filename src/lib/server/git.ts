@@ -203,7 +203,7 @@ export async function updateRepo(githubApiToken: string, repo: string, cache: ob
 
                             const bot = getBotCommitDate();
 
-                            await correctText(spellcheckId,false, mergedMetadata, {
+                            await correctText(spellcheckId, false, mergedMetadata, {
                                 author: bot,
                                 committer: bot,
                                 message: `Merged ${spellcheckId}`,
@@ -460,7 +460,7 @@ export async function correctText(path: string, isCurrentRunning: boolean, metad
         lastCommit = commit;
 
         await git.writeRef({ fs, dir, ref: `refs/spellcheck/${currentBlob.oid}`, value: commit, symbolic: false, force: true });
-        fireUpdate(path, metadata,isCurrentRunning);
+        fireUpdate(path, metadata, isCurrentRunning);
         await git.push({
             fs,
             dir,
@@ -526,7 +526,7 @@ export async function correctText(path: string, isCurrentRunning: boolean, metad
         });
 
         await git.writeRef({ fs, dir, ref: `refs/spellcheck/${originalOid}`, value: commit, symbolic: false, force: true });
-        fireUpdate(path, metadata,isCurrentRunning);
+        fireUpdate(path, metadata, isCurrentRunning);
         await git.push({
             fs,
             dir,
@@ -633,11 +633,25 @@ export async function getCorrectionOid(path: string, depth: number = 0, cache: o
 
 export async function hasCorrection(path: string, depth: number = 0, cache: object = {}) {
     const head = await git.resolveRef({ fs, dir, ref: 'HEAD' });
+    type FromPromise<T> = T extends Promise<infer U> ? U : never;
+    async function tryReadBlob(...params: Parameters<typeof git.readBlob>): Promise<FromPromise<ReturnType<typeof git.readBlob>> | null> {
+        try {
+            return await git.readBlob(...params);
+        } catch (e) {
+            if (e instanceof git.Errors.NotFoundError) {
+                return null;
+            }
+            throw e;
+        }
+    }
 
     // this is not correct, we do not want the correction from previous commit, but from previous correction
     let currentCommit = head;
     if (depth == 0) {
-        const currentBlob = await git.readBlob({ fs, dir, filepath: path, oid: currentCommit, cache });
+        const currentBlob = await tryReadBlob({ fs, dir, filepath: path, oid: currentCommit, cache });
+        if (!currentBlob) {
+            return false;
+        }
         const oid = currentBlob.oid;
         try {
             await git.resolveRef({ fs, dir, ref: `refs/spellcheck/${oid}` });
@@ -658,7 +672,10 @@ export async function hasCorrection(path: string, depth: number = 0, cache: obje
 
     while (depth > 0) {
 
-        const currentBlob = await git.readBlob({ fs, dir, filepath: path, oid: currentCommit, cache });
+        const currentBlob = await tryReadBlob({ fs, dir, filepath: path, oid: currentCommit, cache });
+        if (!currentBlob) {
+            return false;
+        }
         const oid = currentBlob.oid;
         try {
             await git.resolveRef({ fs, dir, ref: `refs/spellcheck/${oid}` });
@@ -678,7 +695,10 @@ export async function hasCorrection(path: string, depth: number = 0, cache: obje
         currentCommit = commit.commit.parent[0];
     }
 
-    const currentBlob = await git.readBlob({ fs, dir, filepath: path, oid: currentCommit, cache });
+    const currentBlob = await tryReadBlob({ fs, dir, filepath: path, oid: currentCommit, cache });
+    if (!currentBlob) {
+        return false;
+    }
     const oid = currentBlob.oid;
     try {
         await git.resolveRef({ fs, dir, ref: `refs/spellcheck/${oid}` });
