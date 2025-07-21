@@ -370,7 +370,26 @@ async function createModels() {
                     if (await ollama.list().then(models => models.models.some(m => m.name == modelName))) {
                         await ollama.delete({ model: modelName });
                     }
-                    await ollama.create({ model: modelName, from: model, system, parameters: { num_ctx: currentContextSize } });
+                    try {
+                        await ollama.create({ model: modelName, from: model, system, parameters: { num_ctx: currentContextSize } });
+                    } catch {
+                        currentContextSize -= incrementContext;
+                        if(currentContextSize < startContextSize) {
+                            console.warn(`Model ${modelName} does not support context size ${startContextSize} tokens. Skipping.`);
+                            if (max_supported_context_of_model) {
+                                console.warn(`Model ${modelName} has a maximum context size of ${max_supported_context_of_model} tokens. Cannot create model with ${startContextSize} tokens`);
+                            }
+                            modelDoseNotSupportMaxVram = true;
+                            cache.models[modelName] = {
+                                context_size: startContextSize,
+                                samples: [],
+                            };
+                            fs.writeFileSync(cache_path, JSON.stringify(cache, undefined, 2));
+                            return;
+                        }
+                        continue;
+                    }
+
                     if (max_supported_context_of_model == undefined && first) {
                         const modelInfo = await ModelDetails(modelName);
                         delete (modelInfo as unknown as { tensors: unknown }).tensors;
