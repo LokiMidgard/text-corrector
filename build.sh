@@ -38,6 +38,12 @@ if [ ! -f /etc/docker/daemon.json ]; then
     # change owner to root
     sudo chown root:root /etc/docker/daemon.json
     echo "Docker daemon configuration file created."
+    echo "restarting docker daemon to apply changes..."
+    sudo systemctl restart docker
+    if [ $? -ne 0 ]; then
+        echo "Error: Failed to restart Docker daemon."
+        exit 1
+    fi
 else
     # check if containerd-snapshotter is enabled
     if grep -q '"containerd-snapshotter": true' /etc/docker/daemon.json; then
