@@ -365,16 +365,237 @@ async function createModels() {
 
                 let first = true;
                 while (true) {
-                    console.log(`Try model ${modelName} with context size ${currentContextSize} tokens`);
-
-                    if (await ollama.list().then(models => models.models.some(m => m.name == modelName))) {
-                        await ollama.delete({ model: modelName });
-                    }
                     try {
+                        console.log(`Try model ${modelName} with context size ${currentContextSize} tokens`);
+
+                        if (await ollama.list().then(models => models.models.some(m => m.name == modelName))) {
+                            await ollama.delete({ model: modelName });
+                        }
                         await ollama.create({ model: modelName, from: model, system, parameters: { num_ctx: currentContextSize } });
+
+
+                        if (max_supported_context_of_model == undefined && first) {
+                            const modelInfo = await ModelDetails(modelName);
+                            delete (modelInfo as unknown as { tensors: unknown }).tensors;
+
+                            console.log(`Model info ${JSON.stringify(modelInfo, undefined, 2)}`);
+
+                            extractMaxContextSize(modelInfo);
+                        }
+                        first = false;
+
+                        if (isCorrectionModel(modelName)) {
+                            await RunModel(modelName, {
+                                context: {
+                                    nextParagraphs: [],
+                                    previousParagraphs: [],
+                                    storyContext: 'Testdata',
+                                },
+                                paragraphToCorrect: 'Testdata',
+                            });
+                        } else {
+                            await RunModel(modelName, {
+                                context: {
+                                    nextParagraphs: [],
+                                    previousParagraphs: [],
+                                    storyContext: 'Testdata',
+                                    intendedStyles: 'short',
+                                },
+                                paragraphToCorrect: 'Testdata',
+                            });
+                        }
+                        const modelInfo = await ModelInfo(modelName);
+                        const total_model_size = modelInfo.size;
+                        const vramContextSize = modelInfo.size_vram;
+                        console.log(`Model ${modelName} created with ${currentContextSize} tokens context; total size ${bytesTohuman(total_model_size)} and vram size ${bytesTohuman(vramContextSize)}`);
+                        if (baseModelSize == undefined) {
+                            baseModelSize = total_model_size;
+                            context_size_per_token_history.push({ tokens: currentContextSize, model_size: total_model_size });
+                            currentContextSize = startContextSize + incrementContext;
+                            continue;
+                        }
+                        context_size_per_token_history.push({ tokens: currentContextSize, model_size: total_model_size });
+                        const modelSizeEstimator = createAproximationFunction(context_size_per_token_history.map(({ model_size, tokens }) => ({ x: tokens, y: model_size })));
+
+
+
+                        if (max_vram == undefined) {
+                            if (total_model_size > vramContextSize) {
+                                max_vram = vramContextSize;
+                                console.log(`Max vram ${bytesTohuman(max_vram)}`);
+                            } else {
+                                if (cache.max_vram) {
+                                    max_vram = cache.max_vram;
+                                    console.log(`Max vram ${bytesTohuman(max_vram)} from cache`);
+                                } else {
+                                    // increase the context size by 4 GB to find the maximum vram
+                                    const increase = 4 * 1024 * 1024 * 1024;
+                                    const newContextSize = Math.floor(modelSizeEstimator.inverse(total_model_size + increase));
+                                    console.log(`Increase context size ${currentContextSize} -> ${newContextSize}`);
+                                    if (max_supported_context_of_model && newContextSize > max_supported_context_of_model) {
+                                        console.warn(`Model ${modelName} has a maximum context size of ${max_supported_context_of_model} tokens. Cannot increase to ${newContextSize}`);
+                                        currentContextSize = max_supported_context_of_model;
+                                        modelDoseNotSupportMaxVram = true;
+                                        max_vram = vramContextSize;
+                                    } else {
+                                        currentContextSize = newContextSize;
+                                    }
+                                    continue;
+                                }
+                            }
+                            if (baseModelSize > max_vram) {
+                                // it will be slow, but we can probably get some use out of it
+                                console.warn(`Base model size ${bytesTohuman(baseModelSize)} is bigger than max vram ${bytesTohuman(max_vram)} no optmalization possible`);
+                                // we need to use the base model size   
+                                console.log(`Model ${modelName} created with context size ${currentContextSize} tokens. Store for future use`);
+                                cache.models[modelName] = {
+                                    context_size: currentContextSize,
+                                    samples: context_size_per_token_history,
+                                };
+                                if (!modelDoseNotSupportMaxVram) {
+                                    cache.max_vram = max_vram;
+                                }
+                                fs.writeFileSync(cache_path, JSON.stringify(cache, undefined, 2));
+
+
+                                if (env.MAX_CONTEXT_WINDOW && currentContextSize > env.MAX_CONTEXT_WINDOW) {
+                                    currentContextSize = env.MAX_CONTEXT_WINDOW;
+                                    console.log(`Model ${modelName} created with context size ${currentContextSize} tokens.`);
+                                }
+
+                                await ollama.delete({ model: modelName });
+                                await ollama.create({ model: modelName, from: model, system, parameters: { num_ctx: currentContextSize } });
+                                return;
+                            } else {
+                                // calculate the maximum context size
+                                const maxContextSize = Math.floor(modelSizeEstimator.inverse(max_vram));
+                                currentContextSize = maxContextSize;
+                                if (max_supported_context_of_model && maxContextSize > max_supported_context_of_model) {
+                                    console.warn(`Model ${modelName} has a maximum context size of ${max_supported_context_of_model} tokens. Cannot increase to ${maxContextSize}`);
+                                    currentContextSize = max_supported_context_of_model;
+                                }
+                                console.log(`Max context size ${maxContextSize} tokens`);
+                            }
+                            continue;
+                        } else {
+                            max_vram = Math.max(max_vram, vramContextSize);
+                            if (!modelDoseNotSupportMaxVram) {
+                                cache.max_vram = max_vram;
+                                fs.writeFileSync(cache_path, JSON.stringify(cache, undefined, 2));
+                            }
+                        }
+                        if (total_model_size > max_vram) {
+                            // we missed probably through rounding
+                            // try a little bit smaller
+
+                            const biggestSampelToSmall = context_size_per_token_history.filter(x => x.model_size > max_vram!).sort((a, b) => b.tokens - a.tokens)[0];
+                            const smallestSampleToBig = context_size_per_token_history.filter(x => x.model_size < max_vram!).sort((a, b) => a.tokens - b.tokens)[0];
+
+                            if (biggestSampelToSmall && smallestSampleToBig) {
+                                const diff = (biggestSampelToSmall.tokens - smallestSampleToBig.tokens) / 2;
+                                currentContextSize = Math.floor(biggestSampelToSmall.tokens - diff);
+                            } else {
+                                if (biggestSampelToSmall) {
+                                    // this should not happen, but just in case
+                                    currentContextSize = Math.floor(biggestSampelToSmall.tokens * 0.9);
+                                } else if (smallestSampleToBig) {
+                                    currentContextSize = Math.floor(smallestSampleToBig.tokens * 0.9);
+                                } else {
+                                    const assumedTokensForModelSize = modelSizeEstimator.inverse(total_model_size);
+                                    const diffToActualTokens = assumedTokensForModelSize - currentContextSize;
+                                    const newTargetTokens = Math.floor(modelSizeEstimator.inverse(max_vram));
+                                    if (newTargetTokens >= currentContextSize) {
+                                        // model is too big, so a higher context size is not possible
+                                        currentContextSize = Math.floor(currentContextSize * 0.95);
+                                    } else {
+                                        if (diffToActualTokens == 0) {
+                                            // the aproximation seems to be near enough
+                                            currentContextSize = newTargetTokens;
+                                        } else {
+                                            const diff_in_percent = (diffToActualTokens / currentContextSize);
+                                            // apply diff to new target
+                                            const newTargetTokensCorrected = Math.floor(newTargetTokens * (1 - diff_in_percent));
+                                            currentContextSize = newTargetTokensCorrected;
+                                        }
+                                    }
+
+                                }
+
+
+                            }
+
+
+                            console.log(`Model ${modelName} too big, try smaller context size ${currentContextSize}`);
+                            continue;
+                        } else if (total_model_size < max_vram * 0.95) {
+                            // we missed probably through rounding
+                            // try a little bit bigger
+
+                            if (!max_supported_context_of_model || currentContextSize < max_supported_context_of_model) {
+                                const biggestSampelToSmall = context_size_per_token_history.filter(x => x.model_size < max_vram!).sort((a, b) => b.tokens - a.tokens)[0];
+                                const smallestSampleToBig = context_size_per_token_history.filter(x => x.model_size > max_vram!).sort((a, b) => a.tokens - b.tokens)[0];
+                                if (biggestSampelToSmall && smallestSampleToBig) {
+                                    const diff = (smallestSampleToBig.tokens - biggestSampelToSmall.tokens) / 2;
+                                    currentContextSize = Math.floor(biggestSampelToSmall.tokens + diff);
+                                } else {
+                                    if (biggestSampelToSmall) {
+                                        // this should not happen, but just in case
+                                        currentContextSize = Math.floor(biggestSampelToSmall.tokens * 1.1);
+                                    } else if (smallestSampleToBig) {
+                                        currentContextSize = Math.floor(smallestSampleToBig.tokens * 1.1);
+                                    } else {
+                                        const assumedTokensForModelSize = modelSizeEstimator.inverse(total_model_size);
+                                        const diffToActualTokens = assumedTokensForModelSize - currentContextSize;
+                                        const newTargetTokens = Math.floor(modelSizeEstimator.inverse(max_vram));
+                                        if (newTargetTokens <= currentContextSize) {
+                                            // model is too small, so a lower context size is not possible
+                                            currentContextSize = Math.floor(currentContextSize * 1.05);
+                                        } else {
+                                            if (diffToActualTokens == 0) {
+                                                // the aproximation seems to be near enough
+                                                currentContextSize = newTargetTokens;
+                                            } else {
+                                                const diff_in_percent = (diffToActualTokens / currentContextSize);
+                                                // apply diff to new target
+                                                const newTargetTokensCorrected = Math.floor(newTargetTokens * (1 + diff_in_percent));
+                                                currentContextSize = newTargetTokensCorrected;
+                                            }
+                                        }
+
+                                    }
+                                }
+
+
+                                console.log(`Model ${modelName} too small, try bigger context size ${currentContextSize}`);
+                                continue;
+                            }
+                        }
+                        if (max_supported_context_of_model && currentContextSize > max_supported_context_of_model!) {
+                            console.warn(`Model ${modelName} has a maximum context size of ${max_supported_context_of_model} tokens. Cannot increase to ${currentContextSize}`);
+                            currentContextSize = max_supported_context_of_model;
+                        }
+                        // we are done
+                        console.log(`Model ${modelName} created with context size ${currentContextSize} tokens. Store for future use`);
+                        cache.models[modelName] = {
+                            context_size: currentContextSize,
+                            samples: context_size_per_token_history,
+                        };
+                        if (!modelDoseNotSupportMaxVram) {
+                            cache.max_vram = max_vram;
+                        }
+                        fs.writeFileSync(cache_path, JSON.stringify(cache, undefined, 2));
+                        if (env.MAX_CONTEXT_WINDOW && currentContextSize > env.MAX_CONTEXT_WINDOW) {
+                            currentContextSize = env.MAX_CONTEXT_WINDOW;
+                            console.log(`Model ${modelName} created with context size ${currentContextSize} tokens.`);
+                            await ollama.delete({ model: modelName });
+                            await ollama.create({ model: modelName, from: model, system, parameters: { num_ctx: currentContextSize } });
+                        }
+                        return;
+
+
                     } catch {
                         currentContextSize -= incrementContext;
-                        if(currentContextSize < startContextSize) {
+                        if (currentContextSize < startContextSize) {
                             console.warn(`Model ${modelName} does not support context size ${startContextSize} tokens. Skipping.`);
                             if (max_supported_context_of_model) {
                                 console.warn(`Model ${modelName} has a maximum context size of ${max_supported_context_of_model} tokens. Cannot create model with ${startContextSize} tokens`);
@@ -390,223 +611,6 @@ async function createModels() {
                         continue;
                     }
 
-                    if (max_supported_context_of_model == undefined && first) {
-                        const modelInfo = await ModelDetails(modelName);
-                        delete (modelInfo as unknown as { tensors: unknown }).tensors;
-
-                        console.log(`Model info ${JSON.stringify(modelInfo, undefined, 2)}`);
-
-                        extractMaxContextSize(modelInfo);
-                    }
-                    first = false;
-
-                    if (isCorrectionModel(modelName)) {
-                        await RunModel(modelName, {
-                            context: {
-                                nextParagraphs: [],
-                                previousParagraphs: [],
-                                storyContext: 'Testdata',
-                            },
-                            paragraphToCorrect: 'Testdata',
-                        });
-                    } else {
-                        await RunModel(modelName, {
-                            context: {
-                                nextParagraphs: [],
-                                previousParagraphs: [],
-                                storyContext: 'Testdata',
-                                intendedStyles: 'short',
-                            },
-                            paragraphToCorrect: 'Testdata',
-                        });
-                    }
-                    const modelInfo = await ModelInfo(modelName);
-                    const total_model_size = modelInfo.size;
-                    const vramContextSize = modelInfo.size_vram;
-                    console.log(`Model ${modelName} created with ${currentContextSize} tokens context; total size ${bytesTohuman(total_model_size)} and vram size ${bytesTohuman(vramContextSize)}`);
-                    if (baseModelSize == undefined) {
-                        baseModelSize = total_model_size;
-                        context_size_per_token_history.push({ tokens: currentContextSize, model_size: total_model_size });
-                        currentContextSize = startContextSize + incrementContext;
-                        continue;
-                    }
-                    context_size_per_token_history.push({ tokens: currentContextSize, model_size: total_model_size });
-                    const modelSizeEstimator = createAproximationFunction(context_size_per_token_history.map(({ model_size, tokens }) => ({ x: tokens, y: model_size })));
-
-
-
-                    if (max_vram == undefined) {
-                        if (total_model_size > vramContextSize) {
-                            max_vram = vramContextSize;
-                            console.log(`Max vram ${bytesTohuman(max_vram)}`);
-                        } else {
-                            if (cache.max_vram) {
-                                max_vram = cache.max_vram;
-                                console.log(`Max vram ${bytesTohuman(max_vram)} from cache`);
-                            } else {
-                                // increase the context size by 4 GB to find the maximum vram
-                                const increase = 4 * 1024 * 1024 * 1024;
-                                const newContextSize = Math.floor(modelSizeEstimator.inverse(total_model_size + increase));
-                                console.log(`Increase context size ${currentContextSize} -> ${newContextSize}`);
-                                if (max_supported_context_of_model && newContextSize > max_supported_context_of_model) {
-                                    console.warn(`Model ${modelName} has a maximum context size of ${max_supported_context_of_model} tokens. Cannot increase to ${newContextSize}`);
-                                    currentContextSize = max_supported_context_of_model;
-                                    modelDoseNotSupportMaxVram = true;
-                                    max_vram = vramContextSize;
-                                } else {
-                                    currentContextSize = newContextSize;
-                                }
-                                continue;
-                            }
-                        }
-                        if (baseModelSize > max_vram) {
-                            // it will be slow, but we can probably get some use out of it
-                            console.warn(`Base model size ${bytesTohuman(baseModelSize)} is bigger than max vram ${bytesTohuman(max_vram)} no optmalization possible`);
-                            // we need to use the base model size   
-                            console.log(`Model ${modelName} created with context size ${currentContextSize} tokens. Store for future use`);
-                            cache.models[modelName] = {
-                                context_size: currentContextSize,
-                                samples: context_size_per_token_history,
-                            };
-                            if (!modelDoseNotSupportMaxVram) {
-                                cache.max_vram = max_vram;
-                            }
-                            fs.writeFileSync(cache_path, JSON.stringify(cache, undefined, 2));
-
-
-                            if (env.MAX_CONTEXT_WINDOW && currentContextSize > env.MAX_CONTEXT_WINDOW) {
-                                currentContextSize = env.MAX_CONTEXT_WINDOW;
-                                console.log(`Model ${modelName} created with context size ${currentContextSize} tokens.`);
-                            }
-
-                            await ollama.delete({ model: modelName });
-                            await ollama.create({ model: modelName, from: model, system, parameters: { num_ctx: currentContextSize } });
-                            return;
-                        } else {
-                            // calculate the maximum context size
-                            const maxContextSize = Math.floor(modelSizeEstimator.inverse(max_vram));
-                            currentContextSize = maxContextSize;
-                            if (max_supported_context_of_model && maxContextSize > max_supported_context_of_model) {
-                                console.warn(`Model ${modelName} has a maximum context size of ${max_supported_context_of_model} tokens. Cannot increase to ${maxContextSize}`);
-                                currentContextSize = max_supported_context_of_model;
-                            }
-                            console.log(`Max context size ${maxContextSize} tokens`);
-                        }
-                        continue;
-                    } else {
-                        max_vram = Math.max(max_vram, vramContextSize);
-                        if (!modelDoseNotSupportMaxVram) {
-                            cache.max_vram = max_vram;
-                            fs.writeFileSync(cache_path, JSON.stringify(cache, undefined, 2));
-                        }
-                    }
-                    if (total_model_size > max_vram) {
-                        // we missed probably through rounding
-                        // try a little bit smaller
-
-                        const biggestSampelToSmall = context_size_per_token_history.filter(x => x.model_size > max_vram!).sort((a, b) => b.tokens - a.tokens)[0];
-                        const smallestSampleToBig = context_size_per_token_history.filter(x => x.model_size < max_vram!).sort((a, b) => a.tokens - b.tokens)[0];
-
-                        if (biggestSampelToSmall && smallestSampleToBig) {
-                            const diff = (biggestSampelToSmall.tokens - smallestSampleToBig.tokens) / 2;
-                            currentContextSize = Math.floor(biggestSampelToSmall.tokens - diff);
-                        } else {
-                            if (biggestSampelToSmall) {
-                                // this should not happen, but just in case
-                                currentContextSize = Math.floor(biggestSampelToSmall.tokens * 0.9);
-                            } else if (smallestSampleToBig) {
-                                currentContextSize = Math.floor(smallestSampleToBig.tokens * 0.9);
-                            } else {
-                                const assumedTokensForModelSize = modelSizeEstimator.inverse(total_model_size);
-                                const diffToActualTokens = assumedTokensForModelSize - currentContextSize;
-                                const newTargetTokens = Math.floor(modelSizeEstimator.inverse(max_vram));
-                                if (newTargetTokens >= currentContextSize) {
-                                    // model is too big, so a higher context size is not possible
-                                    currentContextSize = Math.floor(currentContextSize * 0.95);
-                                } else {
-                                    if (diffToActualTokens == 0) {
-                                        // the aproximation seems to be near enough
-                                        currentContextSize = newTargetTokens;
-                                    } else {
-                                        const diff_in_percent = (diffToActualTokens / currentContextSize);
-                                        // apply diff to new target
-                                        const newTargetTokensCorrected = Math.floor(newTargetTokens * (1 - diff_in_percent));
-                                        currentContextSize = newTargetTokensCorrected;
-                                    }
-                                }
-
-                            }
-
-
-                        }
-
-
-                        console.log(`Model ${modelName} too big, try smaller context size ${currentContextSize}`);
-                        continue;
-                    } else if (total_model_size < max_vram * 0.95) {
-                        // we missed probably through rounding
-                        // try a little bit bigger
-
-                        if (!max_supported_context_of_model || currentContextSize < max_supported_context_of_model) {
-                            const biggestSampelToSmall = context_size_per_token_history.filter(x => x.model_size < max_vram!).sort((a, b) => b.tokens - a.tokens)[0];
-                            const smallestSampleToBig = context_size_per_token_history.filter(x => x.model_size > max_vram!).sort((a, b) => a.tokens - b.tokens)[0];
-                            if (biggestSampelToSmall && smallestSampleToBig) {
-                                const diff = (smallestSampleToBig.tokens - biggestSampelToSmall.tokens) / 2;
-                                currentContextSize = Math.floor(biggestSampelToSmall.tokens + diff);
-                            } else {
-                                if (biggestSampelToSmall) {
-                                    // this should not happen, but just in case
-                                    currentContextSize = Math.floor(biggestSampelToSmall.tokens * 1.1);
-                                } else if (smallestSampleToBig) {
-                                    currentContextSize = Math.floor(smallestSampleToBig.tokens * 1.1);
-                                } else {
-                                    const assumedTokensForModelSize = modelSizeEstimator.inverse(total_model_size);
-                                    const diffToActualTokens = assumedTokensForModelSize - currentContextSize;
-                                    const newTargetTokens = Math.floor(modelSizeEstimator.inverse(max_vram));
-                                    if (newTargetTokens <= currentContextSize) {
-                                        // model is too small, so a lower context size is not possible
-                                        currentContextSize = Math.floor(currentContextSize * 1.05);
-                                    } else {
-                                        if (diffToActualTokens == 0) {
-                                            // the aproximation seems to be near enough
-                                            currentContextSize = newTargetTokens;
-                                        } else {
-                                            const diff_in_percent = (diffToActualTokens / currentContextSize);
-                                            // apply diff to new target
-                                            const newTargetTokensCorrected = Math.floor(newTargetTokens * (1 + diff_in_percent));
-                                            currentContextSize = newTargetTokensCorrected;
-                                        }
-                                    }
-
-                                }
-                            }
-
-
-                            console.log(`Model ${modelName} too small, try bigger context size ${currentContextSize}`);
-                            continue;
-                        }
-                    }
-                    if (max_supported_context_of_model && currentContextSize > max_supported_context_of_model!) {
-                        console.warn(`Model ${modelName} has a maximum context size of ${max_supported_context_of_model} tokens. Cannot increase to ${currentContextSize}`);
-                        currentContextSize = max_supported_context_of_model;
-                    }
-                    // we are done
-                    console.log(`Model ${modelName} created with context size ${currentContextSize} tokens. Store for future use`);
-                    cache.models[modelName] = {
-                        context_size: currentContextSize,
-                        samples: context_size_per_token_history,
-                    };
-                    if (!modelDoseNotSupportMaxVram) {
-                        cache.max_vram = max_vram;
-                    }
-                    fs.writeFileSync(cache_path, JSON.stringify(cache, undefined, 2));
-                    if (env.MAX_CONTEXT_WINDOW && currentContextSize > env.MAX_CONTEXT_WINDOW) {
-                        currentContextSize = env.MAX_CONTEXT_WINDOW;
-                        console.log(`Model ${modelName} created with context size ${currentContextSize} tokens.`);
-                        await ollama.delete({ model: modelName });
-                        await ollama.create({ model: modelName, from: model, system, parameters: { num_ctx: currentContextSize } });
-                    }
-                    return;
                 }
             }
 
