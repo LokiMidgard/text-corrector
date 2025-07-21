@@ -362,6 +362,7 @@ async function createModels() {
                 const context_size_per_token_history: { tokens: number, model_size: number }[] = [];
                 let max_vram: number | undefined = undefined;
                 let modelDoseNotSupportMaxVram = false;
+                let do_not_increase_context_size = false;
 
                 let first = true;
                 while (true) {
@@ -566,8 +567,20 @@ async function createModels() {
                                 }
 
 
-                                console.log(`Model ${modelName} too small, try bigger context size ${currentContextSize}`);
-                                continue;
+                                if (do_not_increase_context_size) {
+                                    console.log(`Model ${modelName} does not support increasing context size, so we stop here`);
+                                    cache.models[modelName] = {
+                                        context_size: currentContextSize,
+                                        samples: context_size_per_token_history,
+                                    };
+                                    fs.writeFileSync(cache_path, JSON.stringify(cache, undefined, 2));
+                                    return;
+
+
+                                } else {
+                                    console.log(`Model ${modelName} too small, try bigger context size ${currentContextSize}`);
+                                    continue;
+                                }
                             }
                         }
                         if (max_supported_context_of_model && currentContextSize > max_supported_context_of_model!) {
@@ -595,12 +608,13 @@ async function createModels() {
 
                     } catch {
                         currentContextSize -= incrementContext;
+                        modelDoseNotSupportMaxVram = true;
+                        do_not_increase_context_size = true;
                         if (currentContextSize < startContextSize) {
                             console.warn(`Model ${modelName} does not support context size ${startContextSize} tokens. Skipping.`);
                             if (max_supported_context_of_model) {
                                 console.warn(`Model ${modelName} has a maximum context size of ${max_supported_context_of_model} tokens. Cannot create model with ${startContextSize} tokens`);
                             }
-                            modelDoseNotSupportMaxVram = true;
                             cache.models[modelName] = {
                                 context_size: startContextSize,
                                 samples: [],
@@ -1180,6 +1194,10 @@ async function correct(path: string) {
         console.log(`Model ${model} loaded in ${(reduceDuration({ milliseconds: loadingTime, second: 0, minute: 0 })).toFormat('mm:ss,SSS')}`);
         const modelInfo = await ModelInfo(`general-correction-${model}`);
         console.log(`Model ${model} info: ${JSON.stringify(modelInfo, undefined, 2)}`);
+        if(modelInfo == undefined) {
+            console.warn(`Model ${model} not found, skipping`);
+            continue;
+        }
 
         if (modelInfo.size > modelInfo.size_vram) {
             console.warn(`Model ${model} dose not fit in VRAM. ${bytesTohuman(modelInfo.size - modelInfo.size_vram)} of ${bytesTohuman(modelInfo.size)} are offloaded.`);
