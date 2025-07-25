@@ -823,23 +823,31 @@ async function RunModel(model: `general-correction-${string}` | `general-alterna
             messages: [{ role: 'user', content: JSON.stringify(input, undefined, 2) }],
             format: zodToJsonSchema(parser),
             stream: true,
+
         });
         const parts = [] as string[];
         let prompt_eval_count: number | undefined = undefined;
         for await (const part of result) {
-            parts.push(part.message.content);
-            prompt_eval_count = part.prompt_eval_count
-            process.stdout.write(part.message.content);
-            const currentText = parts.join('');
-            if (checkForLongRepeatingPart(currentText, 150, 3)) {
-                console.log('\n');
+            try{
 
-                console.error(`Model ${model} is repeating itself. Try again`);
-                console.log('\n');
-                console.log(currentText);
-                console.log('\n');
-
-                throw new Error(`Model ${model} is repeating itself. Try again`);
+                parts.push(part.message.content);
+                prompt_eval_count = part.prompt_eval_count
+                process.stdout.write(part.message.content);
+                const currentText = parts.join('');
+                if (checkForLongRepeatingPart(currentText, 150, 3)) {
+                    console.log('\n');
+                    
+                    console.error(`Model ${model} is repeating itself. Try again`);
+                    console.log('\n');
+                    console.log(currentText);
+                    console.log('\n');
+                    
+                    
+                    throw new Error(`Model ${model} is repeating itself. Try again`);
+                }
+            }catch (e){
+                result.abort();
+                throw e;
             }
         }
         console.log('\n');
