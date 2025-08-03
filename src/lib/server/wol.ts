@@ -817,141 +817,141 @@ async function RunModel(model: `general-alternation-${string}`, input: Alternati
 async function RunModel(model: `general-correction-${string}` | `general-alternation-${string}`, input: CorrectionInput | AlternationInput, temperature: number | undefined): Promise<(CorrectionResult | AlternationResult) & { prompt_eval_count?: number }>;
 async function RunModel(model: `general-correction-${string}` | `general-alternation-${string}`, input: CorrectionInput | AlternationInput, temperature?: number | undefined): Promise<(CorrectionResult | AlternationResult) & { prompt_eval_count?: number }> {
     const ollama = new Ollama({ host: `${protocol}://${host}:${port}`, fetch: noTimeoutFetch });
-    for (let trys = 0; trys < 10; trys++) {
+    // for (let trys = 0; trys < 10; trys++) {
 
-        const parser = model.startsWith('general-correction') ? CorrectionResultParser : AlternationResultParser;
-        const type = model.startsWith('general-correction') ? 'correction' : 'alternation';
-        if (temperature != undefined) {
-            console.log(`Run model ${model} with temperature ${temperature}`);
+    const parser = model.startsWith('general-correction') ? CorrectionResultParser : AlternationResultParser;
+    const type = model.startsWith('general-correction') ? 'correction' : 'alternation';
+    if (temperature != undefined) {
+        console.log(`Run model ${model} with temperature ${temperature}`);
+    }
+    const result = await ollama.chat({
+        model,
+        messages: [{ role: 'user', content: JSON.stringify(input, undefined, 2) }],
+        format: zodToJsonSchema(parser),
+        stream: true,
+        options: {
+            temperature: temperature,
         }
-        const result = await ollama.chat({
-            model,
-            messages: [{ role: 'user', content: JSON.stringify(input, undefined, 2) }],
-            format: zodToJsonSchema(parser),
-            stream: true,
-            options: {
-                temperature: temperature,
-            }
 
-        });
-        const parts = [] as string[];
-        let charactersInLine = 0;
-        const targetedLineLength = 60; // we want to have a maximum of 80 characters per line
-        let prompt_eval_count: number | undefined = undefined;
-        for await (const part of result) {
-            try {
+    });
+    const parts = [] as string[];
+    let charactersInLine = 0;
+    const targetedLineLength = 60; // we want to have a maximum of 80 characters per line
+    let prompt_eval_count: number | undefined = undefined;
+    for await (const part of result) {
+        try {
 
-                parts.push(part.message.content);
-                prompt_eval_count = part.prompt_eval_count
-                const lines = part.message.content.split('\n');
-                let firtsLine = true;
-                for (const line of lines) {
-                    if (!firtsLine) {
-                        process.stdout.write('\n');
-                        charactersInLine = 0; // reset the character count
-                    } else {
-                        firtsLine = false;
-                    }
+            parts.push(part.message.content);
+            prompt_eval_count = part.prompt_eval_count
+            const lines = part.message.content.split('\n');
+            let firtsLine = true;
+            for (const line of lines) {
+                if (!firtsLine) {
+                    process.stdout.write('\n');
+                    charactersInLine = 0; // reset the character count
+                } else {
+                    firtsLine = false;
+                }
 
-                    if (line.length > 0) {
-                        if (charactersInLine + line.length > targetedLineLength) {
-                            // we need to break the line
-                            const words = line.split(' ');
-                            for (const word of words) {
-                                if (charactersInLine + word.length > targetedLineLength) {
-                                    process.stdout.write('\n');
-                                    charactersInLine = 0; // reset the character count
-                                }
-                                process.stdout.write(word + ' ');
-                                charactersInLine += word.length + 1; // +1 for the space
+                if (line.length > 0) {
+                    if (charactersInLine + line.length > targetedLineLength) {
+                        // we need to break the line
+                        const words = line.split(' ');
+                        for (const word of words) {
+                            if (charactersInLine + word.length > targetedLineLength) {
+                                process.stdout.write('\n');
+                                charactersInLine = 0; // reset the character count
                             }
-                        } else {
-                            process.stdout.write(line);
-                            charactersInLine += line.length;
-                        }
-                    }
-                }
-
-
-                // process.stdout.write(part.message.content);
-                const currentText = parts.join('');
-                if (checkForLongRepeatingPart(currentText, 150, 3)) {
-                    console.log('\n');
-
-                    console.error(`Model ${model} is repeating itself. Try again`);
-                    console.log('\n');
-                    console.log(currentText);
-                    console.log('\n');
-
-                    if (temperature == undefined) {
-                        temperature = 0.1;
-                    } else if (temperature >= 2) {
-                        console.error(`Model ${model} is repeating itself too often. Aborting`);
-                        parts.push(`\n\n**Model ${model} is repeating itself too often. Aborting**\n`);
-
-                        const text = parts.join('');
-
-                        if (type == 'correction') {
-                            const replaced: z.infer<typeof CorrectionResultParser> = {
-                                corrected: text,
-                                badPoints: [],
-                                goodPoints: [],
-                                involvedCharacters: [],
-                                judgment: 0
-                            };
-                            return replaced;
-                        } else {
-                            // type == 'alternation'
-                            const replaced: z.infer<typeof AlternationResultParser> = {
-                                alternative: text,
-                                involvedCharacters: [],
-
-                            };
-                            return replaced;
+                            process.stdout.write(word + ' ');
+                            charactersInLine += word.length + 1; // +1 for the space
                         }
                     } else {
-                        temperature += 0.1;
-                        temperature = Math.min(temperature, 2);
+                        process.stdout.write(line);
+                        charactersInLine += line.length;
                     }
-                    result.abort();
-                    return await RunModel(model, input, temperature); // retry with the same input
-
-                    // throw new Error(`Model ${model} is repeating itself. Try again with temperature ${chanegTempratureAfterRepeat}`);
                 }
-            } catch (e) {
+            }
+
+
+            // process.stdout.write(part.message.content);
+            const currentText = parts.join('');
+            if (checkForLongRepeatingPart(currentText, 150, 3)) {
+                console.log('\n');
+
+                console.error(`Model ${model} is repeating itself. Try again`);
+                console.log('\n');
+                console.log(currentText);
+                console.log('\n');
+
+                if (temperature == undefined) {
+                    temperature = 0.1;
+                } else if (temperature >= 2) {
+                    console.error(`Model ${model} is repeating itself too often. Aborting`);
+                    parts.push(`\n\n**Model ${model} is repeating itself too often. Aborting**\n`);
+
+                    const text = parts.join('');
+
+                    if (type == 'correction') {
+                        const replaced: z.infer<typeof CorrectionResultParser> = {
+                            corrected: text,
+                            badPoints: [],
+                            goodPoints: [],
+                            involvedCharacters: [],
+                            judgment: 0
+                        };
+                        return replaced;
+                    } else {
+                        // type == 'alternation'
+                        const replaced: z.infer<typeof AlternationResultParser> = {
+                            alternative: text,
+                            involvedCharacters: [],
+
+                        };
+                        return replaced;
+                    }
+                } else {
+                    temperature += 0.1;
+                    temperature = Math.min(temperature, 2);
+                }
                 result.abort();
-                throw e;
+                return await RunModel(model, input, temperature); // retry with the same input
+
+                // throw new Error(`Model ${model} is repeating itself. Try again with temperature ${chanegTempratureAfterRepeat}`);
             }
-        }
-        if (temperature != undefined) {
-            console.log(`Model ${model} changed temperature to ${temperature} but finished now, reset`);
-        }
-        console.log('\n');
-        const correctionJsonText = parts.join('');
-
-        // fix encoding errors like <0x6E>
-        const correctionJsonTextFixed = correctionJsonText.replace(/<0x[0-9A-Fa-f]{2}>/g, (match) => {
-            const charCode = parseInt(match.slice(3, -1), 16);
-            return String.fromCharCode(charCode);
-        });
-
-
-        const parsed = parser.safeParse(JSON.parse(correctionJsonTextFixed));
-        if (parsed.success) { // this should not fail, since ollama already validated against this schema
-            return { prompt_eval_count, ...parsed.data };
-        }
-        else {
-            const errorPath = 'faild.json';
-            // check if we already have a sample and wirte it to a file if not
-
-            if (!fs.existsSync(errorPath)) {
-                fs.writeFileSync(errorPath, JSON.stringify(correctionJsonTextFixed, undefined, 2));
-            }
-
-            console.error(`Unable to parse result from model ${model} with input:\n${JSON.stringify(input, undefined, 2)}\nand output:\n${correctionJsonText}`);
+        } catch (e) {
+            result.abort();
+            throw e;
         }
     }
-    throw new Error(`Unable to get a valid response from model ${model} wit input:\n${JSON.stringify(input, undefined, 2)}`);
+    if (temperature != undefined) {
+        console.log(`Model ${model} changed temperature to ${temperature} but finished now, reset`);
+    }
+    console.log('\n');
+    const correctionJsonText = parts.join('');
+
+    // fix encoding errors like <0x6E>
+    const correctionJsonTextFixed = correctionJsonText.replace(/<0x[0-9A-Fa-f]{2}>/g, (match) => {
+        const charCode = parseInt(match.slice(3, -1), 16);
+        return String.fromCharCode(charCode);
+    });
+
+
+    const parsed = parser.safeParse(JSON.parse(correctionJsonTextFixed));
+    if (parsed.success) { // this should not fail, since ollama already validated against this schema
+        return { prompt_eval_count, ...parsed.data };
+    }
+    else {
+        const errorPath = 'faild.json';
+        // check if we already have a sample and wirte it to a file if not
+
+        if (!fs.existsSync(errorPath)) {
+            fs.writeFileSync(errorPath, JSON.stringify(correctionJsonTextFixed, undefined, 2));
+        }
+
+        console.error(`Unable to parse result from model ${model} with input:\n${JSON.stringify(input, undefined, 2)}\nand output:\n${correctionJsonText}`);
+        throw new Error(`Unable to get a valid response from model ${model} wit input:\n${JSON.stringify(input, undefined, 2)}`);
+    }
+    // }
 }
 
 function checkForLongRepeatingPart(txt: string, minLength: number, minRepeats: number) {
