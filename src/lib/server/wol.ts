@@ -857,7 +857,7 @@ async function RunModel(model: `general-correction-${string}` | `general-alterna
                         chanegTempratureAfterRepeat += 0.1;
                         chanegTempratureAfterRepeat = Math.min(chanegTempratureAfterRepeat, 2);
                     }
-                    throw new Error(`Model ${model} is repeating itself. Try again`);
+                    throw new Error(`Model ${model} is repeating itself. Try again with temperature ${chanegTempratureAfterRepeat}`);
                 }
             } catch (e) {
                 result.abort();
