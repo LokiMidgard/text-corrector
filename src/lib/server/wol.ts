@@ -16,6 +16,7 @@ import path from 'path';
 import { env, fetchOptions, pathFilter, wake, type NewParagrapInfo } from './configuration';
 import { getLanguageToolResult, type LanguageToolResult } from './languagetool';
 import { Semaphore } from 'await-semaphore';
+import { run } from 'svelte/legacy';
 
 
 const cache_path = '/var/cache/lector/ollama.json';
@@ -811,10 +812,10 @@ function getBasemodel<T extends string>(params: `general-correction-${T}` | `gen
     throw new Error(`Not a model`)
 }
 
-let chanegTempratureAfterRepeat: number | undefined = undefined;
 async function RunModel(model: `general-correction-${string}`, input: CorrectionInput): Promise<CorrectionResult & { prompt_eval_count?: number }>;
 async function RunModel(model: `general-alternation-${string}`, input: AlternationInput): Promise<AlternationResult & { prompt_eval_count?: number }>;
-async function RunModel(model: `general-correction-${string}` | `general-alternation-${string}`, input: CorrectionInput | AlternationInput): Promise<(CorrectionResult | AlternationResult) & { prompt_eval_count?: number }> {
+async function RunModel(model: `general-correction-${string}` | `general-alternation-${string}`, input: CorrectionInput | AlternationInput, temperature:number|undefined): Promise<(CorrectionResult | AlternationResult) & { prompt_eval_count?: number }>;
+async function RunModel(model: `general-correction-${string}` | `general-alternation-${string}`, input: CorrectionInput | AlternationInput, temperature?:number=undefined): Promise<(CorrectionResult | AlternationResult) & { prompt_eval_count?: number }> {
     const ollama = new Ollama({ host: `${protocol}://${host}:${port}`, fetch: noTimeoutFetch });
     for (let trys = 0; trys < 10; trys++) {
 
@@ -825,7 +826,7 @@ async function RunModel(model: `general-correction-${string}` | `general-alterna
             format: zodToJsonSchema(parser),
             stream: true,
             options: {
-                temperature: chanegTempratureAfterRepeat,
+                temperature: temperature,
             }
 
         });
@@ -846,27 +847,28 @@ async function RunModel(model: `general-correction-${string}` | `general-alterna
                     console.log(currentText);
                     console.log('\n');
 
-                    if (chanegTempratureAfterRepeat == undefined) {
-                        chanegTempratureAfterRepeat = 0.1;
-                    } else if (chanegTempratureAfterRepeat >= 2) {
+                    if (temperature == undefined) {
+                        temperature = 0.1;
+                    } else if (temperature >= 2) {
                         console.error(`Model ${model} is repeating itself too often. Aborting`);
                         parts.push(`\n\n**Model ${model} is repeating itself too often. Aborting**\n`);
-                        chanegTempratureAfterRepeat = undefined;
+                        temperature = undefined;
                         break;
                     } else {
-                        chanegTempratureAfterRepeat += 0.1;
-                        chanegTempratureAfterRepeat = Math.min(chanegTempratureAfterRepeat, 2);
+                        temperature += 0.1;
+                        temperature = Math.min(temperature, 2);
                     }
-                    throw new Error(`Model ${model} is repeating itself. Try again with temperature ${chanegTempratureAfterRepeat}`);
+                    result.abort();
+                    await RunModel(model, input,temperature); // retry with the same input
+                    // throw new Error(`Model ${model} is repeating itself. Try again with temperature ${chanegTempratureAfterRepeat}`);
                 }
             } catch (e) {
                 result.abort();
                 throw e;
             }
         }
-        if (chanegTempratureAfterRepeat != undefined) {
-            console.log(`Model ${model} changed temperature to ${chanegTempratureAfterRepeat} but finished now, reset`);
-            chanegTempratureAfterRepeat = undefined;
+        if (temperature != undefined) {
+            console.log(`Model ${model} changed temperature to ${temperature} but finished now, reset`);
         }
         console.log('\n');
         const correctionJsonText = parts.join('');
