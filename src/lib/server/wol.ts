@@ -814,8 +814,8 @@ function getBasemodel<T extends string>(params: `general-correction-${T}` | `gen
 
 async function RunModel(model: `general-correction-${string}`, input: CorrectionInput): Promise<CorrectionResult & { prompt_eval_count?: number }>;
 async function RunModel(model: `general-alternation-${string}`, input: AlternationInput): Promise<AlternationResult & { prompt_eval_count?: number }>;
-async function RunModel(model: `general-correction-${string}` | `general-alternation-${string}`, input: CorrectionInput | AlternationInput, temperature:number|undefined): Promise<(CorrectionResult | AlternationResult) & { prompt_eval_count?: number }>;
-async function RunModel(model: `general-correction-${string}` | `general-alternation-${string}`, input: CorrectionInput | AlternationInput, temperature?:number=undefined): Promise<(CorrectionResult | AlternationResult) & { prompt_eval_count?: number }> {
+async function RunModel(model: `general-correction-${string}` | `general-alternation-${string}`, input: CorrectionInput | AlternationInput, temperature: number | undefined): Promise<(CorrectionResult | AlternationResult) & { prompt_eval_count?: number }>;
+async function RunModel(model: `general-correction-${string}` | `general-alternation-${string}`, input: CorrectionInput | AlternationInput, temperature?: number = undefined): Promise<(CorrectionResult | AlternationResult) & { prompt_eval_count?: number }> {
     const ollama = new Ollama({ host: `${protocol}://${host}:${port}`, fetch: noTimeoutFetch });
     for (let trys = 0; trys < 10; trys++) {
 
@@ -831,12 +831,47 @@ async function RunModel(model: `general-correction-${string}` | `general-alterna
 
         });
         const parts = [] as string[];
+        let charactersInLine = 0;
+        const targetedLineLength = 60; // we want to have a maximum of 80 characters per line
         let prompt_eval_count: number | undefined = undefined;
         for await (const part of result) {
             try {
 
                 parts.push(part.message.content);
                 prompt_eval_count = part.prompt_eval_count
+                const lines = part.message.content.split('\n');
+                let firtsLine = true;
+                for (const line of lines) {
+                    if (!firtsLine) {
+                        process.stdout.write('\n');
+                        charactersInLine = 0; // reset the character count
+                    } else {
+                        firtsLine = false;
+                    }
+                    if (charactersInLine > targetedLineLength) {
+                        // we need to break the line
+                        process.stdout.write('\n');
+                        charactersInLine = 0; // reset the character count
+                    }
+                    if (line.length > 0) {
+                        if (charactersInLine + line.length > targetedLineLength) {
+                            // we need to break the line
+                            const words = line.split(' ');
+                            for (const word of words) {
+                                if (charactersInLine + word.length > targetedLineLength) {
+                                    process.stdout.write('\n');
+                                    charactersInLine = 0; // reset the character count
+                                }
+                                process.stdout.write(word + ' ');
+                                charactersInLine += word.length + 1; // +1 for the space
+                            }
+                        } else {
+                            process.stdout.write(line);
+                        }
+                    }
+                }
+
+
                 process.stdout.write(part.message.content);
                 const currentText = parts.join('');
                 if (checkForLongRepeatingPart(currentText, 150, 3)) {
@@ -859,7 +894,7 @@ async function RunModel(model: `general-correction-${string}` | `general-alterna
                         temperature = Math.min(temperature, 2);
                     }
                     result.abort();
-                    await RunModel(model, input,temperature); // retry with the same input
+                    await RunModel(model, input, temperature); // retry with the same input
                     // throw new Error(`Model ${model} is repeating itself. Try again with temperature ${chanegTempratureAfterRepeat}`);
                 }
             } catch (e) {
