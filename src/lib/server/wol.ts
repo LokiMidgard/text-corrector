@@ -8,7 +8,7 @@ import { z } from 'zod';
 import type { BlockContent, DefinitionContent, RootContent } from 'mdast';
 
 import * as git from '$lib/server/git'
-import { fireUpdate, setModelConiguration } from '$lib/trpc/router';
+import { fireUpdate, setModelConiguration, t } from '$lib/trpc/router';
 import { zodToJsonSchema } from "zod-to-json-schema";
 
 import { bytesTohuman, createAproximationFunction, formatMarkdown, getFileProgress, getFileTotalProgress, msToHumanReadable, reduceDuration, transformFromAst, transformToAst } from '$lib';
@@ -815,11 +815,14 @@ function getBasemodel<T extends string>(params: `general-correction-${T}` | `gen
 async function RunModel(model: `general-correction-${string}`, input: CorrectionInput): Promise<CorrectionResult & { prompt_eval_count?: number }>;
 async function RunModel(model: `general-alternation-${string}`, input: AlternationInput): Promise<AlternationResult & { prompt_eval_count?: number }>;
 async function RunModel(model: `general-correction-${string}` | `general-alternation-${string}`, input: CorrectionInput | AlternationInput, temperature: number | undefined): Promise<(CorrectionResult | AlternationResult) & { prompt_eval_count?: number }>;
-async function RunModel(model: `general-correction-${string}` | `general-alternation-${string}`, input: CorrectionInput | AlternationInput, temperature?: number = undefined): Promise<(CorrectionResult | AlternationResult) & { prompt_eval_count?: number }> {
+async function RunModel(model: `general-correction-${string}` | `general-alternation-${string}`, input: CorrectionInput | AlternationInput, temperature?: number |undefined): Promise<(CorrectionResult | AlternationResult) & { prompt_eval_count?: number }> {
     const ollama = new Ollama({ host: `${protocol}://${host}:${port}`, fetch: noTimeoutFetch });
     for (let trys = 0; trys < 10; trys++) {
 
         const parser = model.startsWith('general-correction') ? CorrectionResultParser : AlternationResultParser;
+        if(temperature != undefined) {
+            console.log(`Run model ${model} with temperature ${temperature}`);
+        }
         const result = await ollama.chat({
             model,
             messages: [{ role: 'user', content: JSON.stringify(input, undefined, 2) }],
