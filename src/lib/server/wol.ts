@@ -347,7 +347,7 @@ async function createModels() {
 
 
                 if (cache.models[modelName] && cache.models[modelName].context_size) {
-                    const finalContextSize = Math.min(cache.models[modelName].context_size, env.MAX_CONTEXT_WINDOW ?? Number.MAX_SAFE_INTEGER);
+                    const finalContextSize = Math.min(cache.models[modelName].context_size, parseInt(env.MAX_CONTEXT_WINDOW ?? `${Number.MAX_SAFE_INTEGER}`));
                     await ollama.create({ model: modelName, from: model, system, parameters: { num_ctx: finalContextSize } });
                     console.log(`Model ${modelName} created with context size ${finalContextSize}`);
                     return;
@@ -459,8 +459,8 @@ async function createModels() {
                                 fs.writeFileSync(cache_path, JSON.stringify(cache, undefined, 2));
 
 
-                                if (env.MAX_CONTEXT_WINDOW && currentContextSize > env.MAX_CONTEXT_WINDOW) {
-                                    currentContextSize = env.MAX_CONTEXT_WINDOW;
+                                if (env.MAX_CONTEXT_WINDOW && currentContextSize > parseInt(env.MAX_CONTEXT_WINDOW)) {
+                                    currentContextSize = parseInt(env.MAX_CONTEXT_WINDOW);
                                     console.log(`Model ${modelName} created with context size ${currentContextSize} tokens.`);
                                 }
 
@@ -597,8 +597,8 @@ async function createModels() {
                             cache.max_vram = max_vram;
                         }
                         fs.writeFileSync(cache_path, JSON.stringify(cache, undefined, 2));
-                        if (env.MAX_CONTEXT_WINDOW && currentContextSize > env.MAX_CONTEXT_WINDOW) {
-                            currentContextSize = env.MAX_CONTEXT_WINDOW;
+                        if (env.MAX_CONTEXT_WINDOW && currentContextSize > parseInt(env.MAX_CONTEXT_WINDOW)) {
+                            currentContextSize = parseInt(env.MAX_CONTEXT_WINDOW);
                             console.log(`Model ${modelName} created with context size ${currentContextSize} tokens.`);
                             await ollama.delete({ model: modelName });
                             await ollama.create({ model: modelName, from: model, system, parameters: { num_ctx: currentContextSize } });
@@ -811,6 +811,7 @@ function getBasemodel<T extends string>(params: `general-correction-${T}` | `gen
     throw new Error(`Not a model`)
 }
 
+let chanegTempratureAfterRepeat: number | undefined = undefined;
 async function RunModel(model: `general-correction-${string}`, input: CorrectionInput): Promise<CorrectionResult & { prompt_eval_count?: number }>;
 async function RunModel(model: `general-alternation-${string}`, input: AlternationInput): Promise<AlternationResult & { prompt_eval_count?: number }>;
 async function RunModel(model: `general-correction-${string}` | `general-alternation-${string}`, input: CorrectionInput | AlternationInput): Promise<(CorrectionResult | AlternationResult) & { prompt_eval_count?: number }> {
@@ -823,12 +824,15 @@ async function RunModel(model: `general-correction-${string}` | `general-alterna
             messages: [{ role: 'user', content: JSON.stringify(input, undefined, 2) }],
             format: zodToJsonSchema(parser),
             stream: true,
+            options: {
+                temperature: chanegTempratureAfterRepeat,
+            }
 
         });
         const parts = [] as string[];
         let prompt_eval_count: number | undefined = undefined;
         for await (const part of result) {
-            try{
+            try {
 
                 parts.push(part.message.content);
                 prompt_eval_count = part.prompt_eval_count
@@ -836,19 +840,33 @@ async function RunModel(model: `general-correction-${string}` | `general-alterna
                 const currentText = parts.join('');
                 if (checkForLongRepeatingPart(currentText, 150, 3)) {
                     console.log('\n');
-                    
+
                     console.error(`Model ${model} is repeating itself. Try again`);
                     console.log('\n');
                     console.log(currentText);
                     console.log('\n');
-                    
-                    
+
+                    if (chanegTempratureAfterRepeat == undefined) {
+                        chanegTempratureAfterRepeat = 0.1;
+                    } else if (chanegTempratureAfterRepeat >= 2) {
+                        console.error(`Model ${model} is repeating itself too often. Aborting`);
+                        parts.push(`\n\n**Model ${model} is repeating itself too often. Aborting**\n`);
+                        chanegTempratureAfterRepeat = undefined;
+                        break;
+                    } else {
+                        chanegTempratureAfterRepeat += 0.1;
+                        chanegTempratureAfterRepeat = Math.min(chanegTempratureAfterRepeat, 2);
+                    }
                     throw new Error(`Model ${model} is repeating itself. Try again`);
                 }
-            }catch (e){
+            } catch (e) {
                 result.abort();
                 throw e;
             }
+        }
+        if (chanegTempratureAfterRepeat != undefined) {
+            console.log(`Model ${model} changed temperature to ${chanegTempratureAfterRepeat} but finished now, reset`);
+            chanegTempratureAfterRepeat = undefined;
         }
         console.log('\n');
         const correctionJsonText = parts.join('');
@@ -1202,7 +1220,7 @@ async function correct(path: string) {
         console.log(`Model ${model} loaded in ${(reduceDuration({ milliseconds: loadingTime, second: 0, minute: 0 })).toFormat('mm:ss,SSS')}`);
         const modelInfo = await ModelInfo(`general-correction-${model}`);
         console.log(`Model ${model} info: ${JSON.stringify(modelInfo, undefined, 2)}`);
-        if(modelInfo == undefined) {
+        if (modelInfo == undefined) {
             console.warn(`Model ${model} not found, skipping`);
             continue;
         }
