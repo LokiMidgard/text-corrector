@@ -851,11 +851,7 @@ async function RunModel(model: `general-correction-${string}` | `general-alterna
                     } else {
                         firtsLine = false;
                     }
-                    if (charactersInLine > targetedLineLength) {
-                        // we need to break the line
-                        process.stdout.write('\n');
-                        charactersInLine = 0; // reset the character count
-                    }
+   
                     if (line.length > 0) {
                         if (charactersInLine + line.length > targetedLineLength) {
                             // we need to break the line
