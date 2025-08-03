@@ -872,7 +872,7 @@ async function RunModel(model: `general-correction-${string}` | `general-alterna
                 }
 
 
-                process.stdout.write(part.message.content);
+                // process.stdout.write(part.message.content);
                 const currentText = parts.join('');
                 if (checkForLongRepeatingPart(currentText, 150, 3)) {
                     console.log('\n');
