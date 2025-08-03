@@ -815,12 +815,13 @@ function getBasemodel<T extends string>(params: `general-correction-${T}` | `gen
 async function RunModel(model: `general-correction-${string}`, input: CorrectionInput): Promise<CorrectionResult & { prompt_eval_count?: number }>;
 async function RunModel(model: `general-alternation-${string}`, input: AlternationInput): Promise<AlternationResult & { prompt_eval_count?: number }>;
 async function RunModel(model: `general-correction-${string}` | `general-alternation-${string}`, input: CorrectionInput | AlternationInput, temperature: number | undefined): Promise<(CorrectionResult | AlternationResult) & { prompt_eval_count?: number }>;
-async function RunModel(model: `general-correction-${string}` | `general-alternation-${string}`, input: CorrectionInput | AlternationInput, temperature?: number |undefined): Promise<(CorrectionResult | AlternationResult) & { prompt_eval_count?: number }> {
+async function RunModel(model: `general-correction-${string}` | `general-alternation-${string}`, input: CorrectionInput | AlternationInput, temperature?: number | undefined): Promise<(CorrectionResult | AlternationResult) & { prompt_eval_count?: number }> {
     const ollama = new Ollama({ host: `${protocol}://${host}:${port}`, fetch: noTimeoutFetch });
     for (let trys = 0; trys < 10; trys++) {
 
         const parser = model.startsWith('general-correction') ? CorrectionResultParser : AlternationResultParser;
-        if(temperature != undefined) {
+        const type = model.startsWith('general-correction') ? 'correction' : 'alternation';
+        if (temperature != undefined) {
             console.log(`Run model ${model} with temperature ${temperature}`);
         }
         const result = await ollama.chat({
@@ -851,7 +852,7 @@ async function RunModel(model: `general-correction-${string}` | `general-alterna
                     } else {
                         firtsLine = false;
                     }
-   
+
                     if (line.length > 0) {
                         if (charactersInLine + line.length > targetedLineLength) {
                             // we need to break the line
@@ -887,15 +888,34 @@ async function RunModel(model: `general-correction-${string}` | `general-alterna
                     } else if (temperature >= 2) {
                         console.error(`Model ${model} is repeating itself too often. Aborting`);
                         parts.push(`\n\n**Model ${model} is repeating itself too often. Aborting**\n`);
-                        temperature = undefined;
-                        break;
+
+                        const text = parts.join('');
+
+                        if (type == 'correction') {
+                            const replaced: z.infer<typeof CorrectionResultParser> = {
+                                corrected: text,
+                                badPoints: [],
+                                goodPoints: [],
+                                involvedCharacters: [],
+                                judgment: 0
+                            };
+                            return replaced;
+                        } else {
+                            // type == 'alternation'
+                            const replaced: z.infer<typeof AlternationResultParser> = {
+                                alternative: text,
+                                involvedCharacters: [],
+
+                            };
+                            return replaced;
+                        }
                     } else {
                         temperature += 0.1;
                         temperature = Math.min(temperature, 2);
                     }
                     result.abort();
                     return await RunModel(model, input, temperature); // retry with the same input
-                    
+
                     // throw new Error(`Model ${model} is repeating itself. Try again with temperature ${chanegTempratureAfterRepeat}`);
                 }
             } catch (e) {
