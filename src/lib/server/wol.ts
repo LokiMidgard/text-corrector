@@ -894,7 +894,8 @@ async function RunModel(model: `general-correction-${string}` | `general-alterna
                         temperature = Math.min(temperature, 2);
                     }
                     result.abort();
-                    await RunModel(model, input, temperature); // retry with the same input
+                    return await RunModel(model, input, temperature); // retry with the same input
+                    
                     // throw new Error(`Model ${model} is repeating itself. Try again with temperature ${chanegTempratureAfterRepeat}`);
                 }
             } catch (e) {
