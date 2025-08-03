@@ -870,6 +870,7 @@ async function RunModel(model: `general-correction-${string}` | `general-alterna
                             }
                         } else {
                             process.stdout.write(line);
+                            charactersInLine += line.length;
                         }
                     }
                 }
